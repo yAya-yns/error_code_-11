@@ -1,0 +1,10 @@
+#!/bin/bash -u
+echo "=======build start!======"
+
+source "/root/utfr_ws/scripts/utfr_source"
+
+catkin build
+
+source "/root/utfr_ws/scripts/utfr_source"
+
+echo "=======build done!======"

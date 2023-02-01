@@ -1,0 +1,74 @@
+#!/bin/bash -u
+
+# run_container for rob521
+# maintainer - kelvin cui
+
+# Get Current Directory
+SOURCE=${BASH_SOURCE[0]}
+while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+  DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+  SOURCE=$(readlink "$SOURCE")
+  [[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+done
+DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+
+# Find src relative to current directory
+PARENTDIR=${DIR%%/docker*}
+SOURCE="$PARENTDIR/src"
+
+CONTAINER_NAME="default_rob521_ros_container"
+IMAGE_NAME="default_rob521_ros_image"
+
+#Allow docker to connect to local display
+xhost -local:root 1>/dev/null 2>&1
+
+docker image inspect $IMAGE_NAME > /dev/null 2>&1
+
+if [ $? -eq 1 ] # Docker container named "$IMAGE_NAME" does not exist
+then
+    echo "$IMAGE_NAME does not exist"
+    docker build \
+        --build-arg PARENTDIR=$PARENTDIR \
+        -t $IMAGE_NAME \
+        -f $PARENTDIR/docker/Dockerfile \
+        $PARENTDIR
+fi
+
+echo "$IMAGE_NAME exists."
+
+#enable display 
+xhost +
+
+docker container inspect $CONTAINER_NAME > /dev/null 2>&1
+if [ $? -eq 1 ]; # Docker container named "$CONTAINER_NAME" does not exist yet:
+  then
+    echo "running $CONTAINER_NAME..."
+    docker run -it \
+    -v /dev:/dev \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -v /dev/bus:/dev/bus \
+    --net=host \
+    --pid=host \
+    --privileged \
+    --env="DISPLAY" \
+    --env="QT_X11_NO_MITSHM=1" \
+    --volume="$HOME/.Xauthority:/root/.Xauthority:rw" \
+    --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
+    --mount type=bind,source=$PARENTDIR/src,target=/root/catkin_ws/src \
+    --mount type=bind,source=$PARENTDIR/docker,target=/root/catkin_ws/docker \
+    --mount type=bind,source=$PARENTDIR/scripts,target=/root/catkin_ws/scripts \
+    --name=$CONTAINER_NAME \
+    $IMAGE_NAME bash
+
+else
+  docker ps -q --filter name=$CONTAINER_NAME > /dev/null 2>&1
+  if [ $? -eq 0 ]; # Docker container named "$CONTAINER_NAME" exists but not yet active:
+    then
+      echo "starting $CONTAINER_NAME..."
+      docker start $CONTAINER_NAME
+  fi
+
+  # Exec into the same container if already running
+  echo "entering $CONTAINER_NAME"
+  docker exec -it $CONTAINER_NAME bash
+fi
