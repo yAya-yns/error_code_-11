@@ -107,26 +107,69 @@ class PathPlanner:
     def robot_controller(self, node_i, point_s):
         #This controller determines the velocities that will nominally move the robot from node i to node s
         #Max velocities should be enforced
-        print("TO DO: Implement a control scheme to drive you towards the sampled point")
-        return 0, 0
+        # print("TO DO: Implement a control scheme to drive you towards the sampled point")
+
+        d_x = point_s[0] - node_i[0]
+        d_y = point_s[1] - node_i[1]
+        d_theta = np.arctan2(d_y, d_x)
+
+        dt = np.sqrt(d_x**2 + d_y**2)/(self.vel_max/2) 
+
+        vel = np.sqrt(d_x**2 + d_y**2)/dt 
+        rot_vel = d_theta/dt
+
+        return vel, rot_vel
     
     def trajectory_rollout(self, vel, rot_vel):
         # Given your chosen velocities determine the trajectory of the robot for your given timestep
         # The returned trajectory should be a series of points to check for collisions
-        print("TO DO: Implement a way to rollout the controls chosen")
-        return np.zeros((3, self.num_substeps))
+        # print("TO DO: Implement a way to rollout the controls chosen")
+        traj = np.zeros((3, self.num_substeps))
+
+        # slide #6 lecture #5
+        theta = 0
+        q_dot = np.array([[np.cos(theta), 0],
+                            [np.sin(theta), 0],
+                            [0, 1]]) * \
+                np.array([[vel],
+                            [rot_vel]])
+
+        traj[0] = self.timestep * np.ones(3) * q_dot.T
+
+        for i in range(1, self.num_substeps):
+            theta = traj[i-1] 
+            q_dot = np.array([[np.cos(theta), 0],
+                            [np.sin(theta), 0],
+                            [0, 1]]) * \
+                    np.array([[vel],
+                                [rot_vel]])
+
+            traj[i] = self.timestep * np.ones(3) * q_dot.T
+
+        return traj
     
     def point_to_cell(self, point):
-        #Convert a series of [x,y] points in the map to the indices for the corresponding cell in the occupancy map
+        #Convert a series of [x,y] metric points in the map to the indices for the corresponding cell in the occupancy map
         #point is a 2 by N matrix of points of interest
-        print("TO DO: Implement a method to get the map cell the robot is currently occupying")
-        return 0
+        # print("TO DO: Implement a method to get the map cell the robot is currently occupying")
+        # map origin = [-21.0, -49.25, 0.000000]
+        
+        map_origin = np.array([-21.0, -49.25])
+        res = 0.05
+
+        occ_points = point + np.tile(map_origin, (point.shape[1], 1))
+        return occ_points/res
 
     def points_to_robot_circle(self, points):
         #Convert a series of [x,y] points to robot map footprints for collision detection
         #Hint: The disk function is included to help you with this function
-        print("TO DO: Implement a method to get the pixel locations of the robot path")
-        return [], []
+        # print("TO DO: Implement a method to get the pixel locations of the robot path")
+        map_circles = []
+        for i in range(points.shape[1]):
+            world_circles = disk((points[i][0], points[i][1]), self.robot_radius)
+            map_circles.append(self.point_to_cell(world_circles))
+        return map_circles
+        # return [], []
     #Note: If you have correctly completed all previous functions, then you should be able to create a working RRT function
 
     #RRT* specific functions
