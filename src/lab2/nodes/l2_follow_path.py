@@ -47,7 +47,7 @@ class PathFollower():
 
         # constant transforms
         self.map_odom_tf = self.tf_buffer.lookup_transform('map', 'odom', rospy.Time(0), rospy.Duration(2.0)).transform
-        print(self.map_odom_tf)
+        #print(self.map_odom_tf)
 
         # subscribers and publishers
         self.cmd_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=1)
@@ -60,9 +60,9 @@ class PathFollower():
         self.map_np = np.array(map.data).reshape(map.info.height, map.info.width)
         self.map_resolution = round(map.info.resolution, 5)
         self.map_origin = -utils.se2_pose_from_pose(map.info.origin)  # negative because of weird way origin is stored
-        print(self.map_origin)
+        #print(self.map_origin)
         self.map_nonzero_idxes = np.argwhere(self.map_np)
-        print(map)
+        #print(map)
 
 
         # collisions
@@ -130,9 +130,37 @@ class PathFollower():
             local_paths[0] = np.atleast_2d(self.pose_in_map_np).repeat(self.num_opts, axis=0)
 
             print("TO DO: Propogate the trajectory forward, storing the resulting points in local_paths!")
+            # === START CUSTOM CODE === 
+            current_pose = self.pose_in_map_np[:]
+            local_paths[0,0,:] = current_pose
+
+            current_goal = self.cur_goal[:2]
+
+            #Create array to track if collision is present:
+            collisions = np.zeros(self.num_opts)
+
+            print(current_pose)
             for t in range(1, self.horizon_timesteps + 1):
-                # propogate trajectory forward, assuming perfect control of velocity and no dynamic effects
-                pass
+                path_idx = 0
+                for t_vel in range(0, TRANS_VEL_OPTS):
+                    for r_vel in range(0, ROT_VEL_OPTS):
+                        
+                        # Stop propagating paths that have already collided:
+                        if collisions[path_idx] == 1:
+                            continue
+                        
+                        theta = local_paths[t-1,path_idx,3]
+                        q_dot = np.array([[np.cos(theta), 0],
+                                          [np.sin(theta), 0],
+                                          [0, 1]]) * \
+                                np.array([[t_vel],
+                                          [r_vel]])
+                        local_paths[t,path_idx,:] = local_paths[t-1,path_idx,:] + q_dot.T * INTEGRATION_DT
+
+                        # Check if new path collides:
+                        if checkCollision(local_paths[t, path_idx, :]):
+                            collisions[path_idx] = 1
+                        path_idx += 1
 
             # check all trajectory points for collisions
             # first find the closest collision point in the map to each local path point
@@ -147,6 +175,8 @@ class PathFollower():
 
             # remove trajectories that were deemed to have collisions
             print("TO DO: Remove trajectories with collisions!")
+
+            valid_opts = local_paths[:,np.where(collisions == 0 ),:]
 
             # calculate final cost and choose best option
             print("TO DO: Calculate the final cost and choose the best control option!")
