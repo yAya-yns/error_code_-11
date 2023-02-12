@@ -6,7 +6,7 @@ WORKDIR /root/catkin_ws
 
 USER root
 
-RUN apt update && apt install -y ranger vim curl &&\
+RUN apt update && apt install -y ranger git vim curl &&\
     #sh -c 'echo "deb http://packages.ros.org/ros/ubuntu \
     #$(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list' &&\
     #curl -s \
@@ -21,6 +21,7 @@ RUN apt update && apt install -y ranger vim curl &&\
     ros-noetic-move-base ros-noetic-urdf ros-noetic-xacro \
     ros-noetic-compressed-image-transport ros-noetic-rqt* \
     ros-noetic-rviz ros-noetic-gmapping \
+    ros-noetic-gazebo-ros \
     ros-noetic-navigation ros-noetic-interactive-markers &&\
     apt install -y ros-noetic-dynamixel-sdk &&\
     apt install -y ros-noetic-turtlebot3-msgs &&\
