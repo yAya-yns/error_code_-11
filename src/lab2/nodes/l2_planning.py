@@ -80,18 +80,43 @@ class PathPlanner:
     #Functions required for RRT
     def sample_map_space(self):
         #Return an [x,y] coordinate to drive the robot towards
-        print("TO DO: Sample point to drive towards")
-        return np.zeros((2, 1))
+        # print("TO DO: Sample point to drive towards")
+        #maybe sample occ map first?
+        #TODO this idk what it wants. not sure if this is enough. Hint is throwing me off
+
+        rand = np.random.rand(2, 1)
+        rand[0] = rand[0] * self.occupancy_map.shape[0] 
+        rand[1] = rand[1] * self.occupancy_map.shape[1] 
+
+        return rand
     
     def check_if_duplicate(self, point):
         #Check if point is a duplicate of an already existing node
-        print("TO DO: Check that nodes are not duplicates")
+        #print("TO DO: Check that nodes are not duplicates")
+        
+        # self.nodes is list of 
+        # def __init__(self, point, parent_id, cost):
+            # self.point = point # A 3 by 1 vector [x, y, theta]
+            # self.parent_id = parent_id # The parent node id that leads to this node (There should only every be one parent in RRT)
+            # self.cost = cost # The cost to come to this node
+            # self.children_ids = [] # The children node ids of this node
+        
+        for i in self.nodes:
+            if i.point == point:
+                return True
         return False
     
     def closest_node(self, point):
         #Returns the index of the closest node
-        print("TO DO: Implement a method to get the closest node to a sapled point")
-        return 0
+        # print("TO DO: Implement a method to get the closest node to a sampled point")
+        closest = 1000000
+        ind = False
+        for i in range(len(self.nodes)):
+            dist = np.linalg.norm(self.nodes[i]- point)
+            if dist < closest:
+                closest = dist
+                ind = i
+        return ind
     
     def simulate_trajectory(self, node_i, point_s):
         #Simulates the non-holonomic motion of the robot.
@@ -146,6 +171,7 @@ class PathPlanner:
 
             traj[i] = self.timestep * np.ones(3) * q_dot.T
 
+        #TODO check that this is indeed giving out each node as cells in occupancy map
         return traj
     
     def point_to_cell(self, point):
@@ -154,8 +180,8 @@ class PathPlanner:
         # print("TO DO: Implement a method to get the map cell the robot is currently occupying")
         # map origin = [-21.0, -49.25, 0.000000]
         
-        map_origin = np.array([-21.0, -49.25])
-        res = 0.05
+        map_origin = self.map_settings_dict['origin'][0:2]
+        res = self.map_settings_dict['resolution']
 
         occ_points = point + np.tile(map_origin, (point.shape[1], 1))
         return occ_points/res
@@ -200,7 +226,7 @@ class PathPlanner:
     def rrt_planning(self):
         #This function performs RRT on the given map and robot
         #You do not need to demonstrate this function to the TAs, but it is left in for you to check your work
-        for i in range(1): #Most likely need more iterations than this to complete the map!
+        for i in range(30): #Most likely need more iterations than this to complete the map!
             #Sample map space
             point = self.sample_map_space()
 
@@ -211,10 +237,27 @@ class PathPlanner:
             trajectory_o = self.simulate_trajectory(self.nodes[closest_node_id].point, point)
 
             #Check for collisions
-            print("TO DO: Check for collisions and add safe points to list of nodes.")
+            # print("TO DO: Check for collisions and add safe points to list of nodes.")
+            # traj = np.array((3, self.num_substeps)) of points
+            # check collision between two lines?
+            traj = trajectory_o.T
+            collision = False
+            for j in range(1, self.num_substeps):
+                if (traj[j][0]<0 or traj[j][0] >= self.map_shape[0] or traj[j][1]<0 or traj[j][1]>= self.map_shape[1]):
+                    collision = True
+                    break
             
+                if self.occupancy_map[traj[j][0]][traj[j][1]] > self.map_settings_dict['occupied_thresh']:
+                    collision = True
+                    break
+                    
+            if collision == False:
+                self.nodes.append(Node(point, closest_node_id))
             #Check if goal has been reached
-            print("TO DO: Check if at goal point.")
+            # print("TO DO: Check if at goal point.")
+            if point == self.goal_point:
+                break
+
         return self.nodes
     
     def rrt_star_planning(self):
@@ -228,6 +271,7 @@ class PathPlanner:
 
             #Simulate trajectory
             trajectory_o = self.simulate_trajectory(self.nodes[closest_node_id].point, point)
+            # traj = np.array((3, self.num_substeps)) of points
 
             #Check for Collision
             print("TO DO: Check for collision.")
