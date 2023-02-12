@@ -11,7 +11,7 @@ from scipy.linalg import block_diag
 
 
 def load_map(filename):
-    im = mpimg.imread("../maps/" + filename)
+    im = mpimg.imread("/home/mingshi/catkin_ws/src/lab2/maps/" + filename)
     if len(im.shape) > 2:
         im = im[:,:,0]
     im_np = np.array(im)  #Whitespace is true, black is false
@@ -20,7 +20,7 @@ def load_map(filename):
 
 
 def load_map_yaml(filename):
-    with open("../maps/" + filename, "r") as stream:
+    with open("/home/mingshi/catkin_ws/src/lab2/maps/" + filename, "r") as stream:
             map_settings_dict = yaml.safe_load(stream)
     return map_settings_dict
 
@@ -112,7 +112,7 @@ class PathPlanner:
         closest = 1000000
         ind = False
         for i in range(len(self.nodes)):
-            dist = np.linalg.norm(self.nodes[i]- point)
+            dist = np.sqrt((self.nodes[i].point[0]- point[0])**2 + (self.nodes[i].point[1]- point[1])**2)
             if dist < closest:
                 closest = dist
                 ind = i
@@ -153,25 +153,30 @@ class PathPlanner:
 
         # slide #6 lecture #5
         theta = 0
-        q_dot = np.array([[np.cos(theta), 0],
+        rot_mat = np.array([[np.cos(theta), 0],
                             [np.sin(theta), 0],
-                            [0, 1]]) * \
-                np.array([[vel],
-                            [rot_vel]])
+                            [0, 1]])
+        vel_vec = np.array([vel, rot_vel])
+        q_dot = np.matmul(rot_mat, vel_vec) # shape (3, 1)
 
-        traj[0] = self.timestep * np.ones(3) * q_dot.T
+        time = self.timestep * np.ones((1,3))
+        traj[:, 0] = np.matmul(time, q_dot)
+
 
         for i in range(1, self.num_substeps):
-            theta = traj[i-1] 
-            q_dot = np.array([[np.cos(theta), 0],
+            theta = traj[2, i-1] 
+            rot_mat = np.array([[np.cos(theta), 0],
                             [np.sin(theta), 0],
-                            [0, 1]]) * \
-                    np.array([[vel],
-                                [rot_vel]])
+                            [0, 1]])
+            vel_vec = np.array([vel, rot_vel])
+            q_dot = np.matmul(rot_mat, vel_vec)
 
-            traj[i] = self.timestep * np.ones(3) * q_dot.T
+            traj[:, i] = np.matmul(time, q_dot)
 
         #TODO check that this is indeed giving out each node as cells in occupancy map
+        print(traj.T)
+        traj = np.round_(traj / self.map_settings_dict['resolution'])
+        print(traj.T)
         return traj
     
     def point_to_cell(self, point):
@@ -246,8 +251,10 @@ class PathPlanner:
                 if (traj[j][0]<0 or traj[j][0] >= self.map_shape[0] or traj[j][1]<0 or traj[j][1]>= self.map_shape[1]):
                     collision = True
                     break
-            
-                if self.occupancy_map[traj[j][0]][traj[j][1]] > self.map_settings_dict['occupied_thresh']:
+                
+                print(traj[j][0])
+                print(traj[j][1])
+                if self.occupancy_map[int(traj[j][0])][int(traj[j][1])] > self.map_settings_dict['occupied_thresh']:
                     collision = True
                     break
                     
@@ -255,7 +262,7 @@ class PathPlanner:
                 self.nodes.append(Node(point, closest_node_id))
             #Check if goal has been reached
             # print("TO DO: Check if at goal point.")
-            if point == self.goal_point:
+            if point[0] == self.goal_point[0] and point[1] == self.goal_point[1]:
                 break
 
         return self.nodes
@@ -298,6 +305,7 @@ class PathPlanner:
 def main():
     #Set map information
     map_filename = "willowgarageworld_05res.png"
+    # map_filename = "simple_map.png"
     map_setings_filename = "willowgarageworld_05res.yaml"
 
     #robot information
@@ -306,8 +314,9 @@ def main():
 
     #RRT precursor
     path_planner = PathPlanner(map_filename, map_setings_filename, goal_point, stopping_dist)
-    nodes = path_planner.rrt_star_planning()
+    nodes = path_planner.rrt_planning()
     node_path_metric = np.hstack(path_planner.recover_path())
+    print(nodes)
 
     #Leftover test functions
     np.save("shortest_path.npy", node_path_metric)
