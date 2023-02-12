@@ -4,4 +4,6 @@
 https://github.com/ROBOTIS-GIT/turtlebot3_simulations.git
 );
 
+pip install scipy
+
 source /root/catkin_ws/scripts/build
