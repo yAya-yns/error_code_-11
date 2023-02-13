@@ -14,6 +14,7 @@ RUN apt update && apt install -y ranger git vim curl pip &&\
     #sudo apt-key add - \ &&
     #apt update &&\
     DEBIAN_FRONTEND=noninteractive apt install -y ros-noetic-joy ros-noetic-teleop-twist-joy \
+    ros-noetic-desktop-full \ 
     ros-noetic-teleop-twist-keyboard ros-noetic-laser-proc \
     ros-noetic-rgbd-launch ros-noetic-rosserial-arduino \
     ros-noetic-rosserial-python ros-noetic-rosserial-client \
