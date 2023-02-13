@@ -1,4 +1,4 @@
-Please refer to lab2_tasks_v3.pdf for project objectives.
+Please refer to `lab2_tasks_v3.pdf` for project objectives.
 
 Starting in docker:
 
