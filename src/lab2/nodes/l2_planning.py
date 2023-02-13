@@ -221,7 +221,7 @@ class PathPlanner:
         assert self.num_substeps >= 3
 
         path = np.zeros((3, self.num_substeps))
-        min_radius = None #TODO: get minimum radius from velocity and maximum angular velocity
+        min_radius = 2 #TODO: get minimum radius from velocity and maximum angular velocity
 
         # first check if the point is at the left or right side of the robot
         robot_xy, theta = node_i.point[0:2], node_i.point[2]
@@ -236,26 +236,27 @@ class PathPlanner:
         circle_centre = on_right * min_radius * robot_right_direction + robot_xy
         circle_centre_to_point_f = point_f - circle_centre
         circle_centre_to_point_f_length = np.linalg.norm(circle_centre - point_f)
-        alpha = np.arccos(min_radius / circle_centre_to_point_f_length)
+        alpha = np.arccos(min_radius / circle_centre_to_point_f_length) * on_right
         beta = np.arctan2(circle_centre_to_point_f[1], circle_centre_to_point_f[0])
-        turning_point = (circle_centre + min_radius * np.array([np.cos(alpha + beta), np.sin(alpha + beta)])).reshape(2, 1)
+        turning_point = (circle_centre + min_radius * np.array([np.cos(alpha + beta), np.sin(alpha + beta)]))
         theta_at_turning_point = np.arctan2(point_f[1] - turning_point[1], point_f[0] - turning_point[0])
 
         # filling in the start, finish, and turning point
-        path[:, -1] = np.concatenate([point_f, theta_at_turning_point], axis=0)
-        path[:, -2] = np.concatenate([turning_point, theta_at_turning_point], axis=0)
+        path[:, -1] = np.concatenate([point_f, [theta_at_turning_point]], axis=0)
+        path[:, -2] = np.concatenate([turning_point, [theta_at_turning_point]], axis=0)
 
         # filling in the remaining points in the arc
-        gamma = np.arccos(np.dot((circle_centre - turning_point) / min_radius, (circle_centre - robot_xy) / min_radius))
-        gamma = gamma + (2 * (np.pi - gamma) if in_front == 1 else 0)
+        start_angle = theta + on_right * np.pi/2
+        circle_centre_to_turning_point = turning_point - circle_centre
+        turning_point_angle = np.arctan2(circle_centre_to_turning_point[1], circle_centre_to_turning_point[0])
+        delta_angle = (turning_point_angle - start_angle) / (self.num_substeps - 2)
 
-        start_angle = alpha + beta + gamma
-        delta_angle = gamma / self.num_substeps
-
-        for i in range(self.num_substeps):
+        for i in range(self.num_substeps - 1):
             ang = start_angle + i * delta_angle
-            pos = (circle_centre + np.array([np.cos(ang), np.sin(ang)])).reshape(2, 1)
-            path[:, i] = np.concatenate([pos, theta - i * delta_angle])
+            print(ang)
+            pos = (circle_centre + min_radius * np.array([np.cos(ang), np.sin(ang)]))
+            path[:, i] = np.concatenate([pos, [theta - i * delta_angle]])
+
         return path
     
     def cost_to_come(self, trajectory_o, rot_cost_coefficient=0):
