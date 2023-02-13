@@ -80,18 +80,43 @@ class PathPlanner:
     #Functions required for RRT
     def sample_map_space(self):
         #Return an [x,y] coordinate to drive the robot towards
-        print("TO DO: Sample point to drive towards")
-        return np.zeros((2, 1))
+        # print("TO DO: Sample point to drive towards")
+        #maybe sample occ map first?
+        #TODO this idk what it wants. not sure if this is enough. Hint is throwing me off
+
+        rand = np.random.rand(2, 1)
+        rand[0] = rand[0] * self.occupancy_map.shape[0] 
+        rand[1] = rand[1] * self.occupancy_map.shape[1] 
+
+        return rand
     
     def check_if_duplicate(self, point):
         #Check if point is a duplicate of an already existing node
-        print("TO DO: Check that nodes are not duplicates")
+        #print("TO DO: Check that nodes are not duplicates")
+        
+        # self.nodes is list of 
+        # def __init__(self, point, parent_id, cost):
+            # self.point = point # A 3 by 1 vector [x, y, theta]
+            # self.parent_id = parent_id # The parent node id that leads to this node (There should only every be one parent in RRT)
+            # self.cost = cost # The cost to come to this node
+            # self.children_ids = [] # The children node ids of this node
+        
+        for i in self.nodes:
+            if i.point == point:
+                return True
         return False
     
     def closest_node(self, point):
         #Returns the index of the closest node
-        print("TO DO: Implement a method to get the closest node to a sapled point")
-        return 0
+        # print("TO DO: Implement a method to get the closest node to a sampled point")
+        closest = 1000000
+        ind = False
+        for i in range(len(self.nodes)):
+            dist = np.sqrt((self.nodes[i].point[0]- point[0])**2 + (self.nodes[i].point[1]- point[1])**2)
+            if dist < closest:
+                closest = dist
+                ind = i
+        return ind
     
     def simulate_trajectory(self, node_i, point_s):
         #Simulates the non-holonomic motion of the robot.
@@ -128,24 +153,30 @@ class PathPlanner:
 
         # slide #6 lecture #5
         theta = 0
-        q_dot = np.array([[np.cos(theta), 0],
+        rot_mat = np.array([[np.cos(theta), 0],
                             [np.sin(theta), 0],
-                            [0, 1]]) * \
-                np.array([[vel],
-                            [rot_vel]])
+                            [0, 1]])
+        vel_vec = np.array([vel, rot_vel])
+        q_dot = np.matmul(rot_mat, vel_vec) # shape (3, 1)
 
-        traj[0] = self.timestep * np.ones(3) * q_dot.T
+        time = self.timestep * np.ones((1,3))
+        traj[:, 0] = np.matmul(time, q_dot)
+
 
         for i in range(1, self.num_substeps):
-            theta = traj[i-1] 
-            q_dot = np.array([[np.cos(theta), 0],
+            theta = traj[2, i-1] 
+            rot_mat = np.array([[np.cos(theta), 0],
                             [np.sin(theta), 0],
-                            [0, 1]]) * \
-                    np.array([[vel],
-                                [rot_vel]])
+                            [0, 1]])
+            vel_vec = np.array([vel, rot_vel])
+            q_dot = np.matmul(rot_mat, vel_vec)
 
-            traj[i] = self.timestep * np.ones(3) * q_dot.T
+            traj[:, i] = np.matmul(time, q_dot)
 
+        #TODO check that this is indeed giving out each node as cells in occupancy map
+        print(traj.T)
+        traj = np.round_(traj / self.map_settings_dict['resolution'])
+        print(traj.T)
         return traj
     
     def point_to_cell(self, point):
@@ -154,8 +185,8 @@ class PathPlanner:
         # print("TO DO: Implement a method to get the map cell the robot is currently occupying")
         # map origin = [-21.0, -49.25, 0.000000]
         
-        map_origin = np.array([-21.0, -49.25])
-        res = 0.05
+        map_origin = self.map_settings_dict['origin'][0:2]
+        res = self.map_settings_dict['resolution']
 
         occ_points = point + np.tile(map_origin, (point.shape[1], 1))
         return occ_points/res
@@ -178,13 +209,54 @@ class PathPlanner:
         card_V = len(self.nodes)
         return min(self.gamma_RRT * (np.log(card_V) / card_V ) ** (1.0/2.0), self.epsilon)
     
-    def connect_node_to_point(self, node_i, point_f):
+    def connect_node_to_point(self, node_i : Node, point_f : np.ndarray):
         #Given two nodes find the non-holonomic path that connects them
         #Settings
         #node is a 3 by 1 node
         #point is a 2 by 1 point
-        print("TO DO: Implement a way to connect two already existing nodes (for rewiring).")
-        return np.zeros((3, self.num_substeps))
+
+        # the following code assumes that point_f is outside of the robot's maximum turn circle
+        point_f.reshape(2)
+        assert point_f.shape == (2,)
+        assert self.num_substeps >= 3
+
+        path = np.zeros((3, self.num_substeps))
+        min_radius = None #TODO: get minimum radius from velocity and maximum angular velocity
+
+        # first check if the point is at the left or right side of the robot
+        robot_xy, theta = node_i.point[0:2], node_i.point[2]
+        robot_direction = np.array([np.cos(theta), np.sin(theta)])  # vector representing forward direction of robot
+        robot_right_direction = np.array([np.sin(theta), -np.cos(theta)])   # vector representing right direction of robot
+
+        # use dot product to find whether point_f is on the right side of robot, and whether it is in front of the robot
+        on_right = np.sign(np.dot(robot_right_direction, point_f - robot_xy))
+        in_front = np.sign(np.dot(robot_direction, point_f - robot_xy))
+
+        # shit tone of math based on geometry
+        circle_centre = on_right * min_radius * robot_right_direction + robot_xy
+        circle_centre_to_point_f = point_f - circle_centre
+        circle_centre_to_point_f_length = np.linalg.norm(circle_centre - point_f)
+        alpha = np.arccos(min_radius / circle_centre_to_point_f_length)
+        beta = np.arctan2(circle_centre_to_point_f[1], circle_centre_to_point_f[0])
+        turning_point = (circle_centre + min_radius * np.array([np.cos(alpha + beta), np.sin(alpha + beta)])).reshape(2, 1)
+        theta_at_turning_point = np.arctan2(point_f[1] - turning_point[1], point_f[0] - turning_point[0])
+
+        # filling in the start, finish, and turning point
+        path[:, -1] = np.concatenate([point_f, theta_at_turning_point], axis=0)
+        path[:, -2] = np.concatenate([turning_point, theta_at_turning_point], axis=0)
+
+        # filling in the remaining points in the arc
+        gamma = np.arccos(np.dot((circle_centre - turning_point) / min_radius, (circle_centre - robot_xy) / min_radius))
+        gamma = gamma + (2 * (np.pi - gamma) if in_front == 1 else 0)
+
+        start_angle = alpha + beta + gamma
+        delta_angle = gamma / self.num_substeps
+
+        for i in range(self.num_substeps):
+            ang = start_angle + i * delta_angle
+            pos = (circle_centre + np.array([np.cos(ang), np.sin(ang)])).reshape(2, 1)
+            path[:, i] = np.concatenate([pos, theta - i * delta_angle])
+        return path
     
     def cost_to_come(self, trajectory_o):
         #The cost to get to a node from lavalle 
@@ -200,7 +272,7 @@ class PathPlanner:
     def rrt_planning(self):
         #This function performs RRT on the given map and robot
         #You do not need to demonstrate this function to the TAs, but it is left in for you to check your work
-        for i in range(1): #Most likely need more iterations than this to complete the map!
+        for i in range(30): #Most likely need more iterations than this to complete the map!
             #Sample map space
             point = self.sample_map_space()
 
@@ -211,10 +283,29 @@ class PathPlanner:
             trajectory_o = self.simulate_trajectory(self.nodes[closest_node_id].point, point)
 
             #Check for collisions
-            print("TO DO: Check for collisions and add safe points to list of nodes.")
-            
+            # print("TO DO: Check for collisions and add safe points to list of nodes.")
+            # traj = np.array((3, self.num_substeps)) of points
+            # check collision between two lines?
+            traj = trajectory_o.T
+            collision = False
+            for j in range(1, self.num_substeps):
+                if (traj[j][0]<0 or traj[j][0] >= self.map_shape[0] or traj[j][1]<0 or traj[j][1]>= self.map_shape[1]):
+                    collision = True
+                    break
+                
+                print(traj[j][0])
+                print(traj[j][1])
+                if self.occupancy_map[int(traj[j][0])][int(traj[j][1])] > self.map_settings_dict['occupied_thresh']:
+                    collision = True
+                    break
+                    
+            if collision == False:
+                self.nodes.append(Node(point, closest_node_id))
             #Check if goal has been reached
-            print("TO DO: Check if at goal point.")
+            # print("TO DO: Check if at goal point.")
+            if point[0] == self.goal_point[0] and point[1] == self.goal_point[1]:
+                break
+
         return self.nodes
     
     def rrt_star_planning(self):
@@ -228,6 +319,7 @@ class PathPlanner:
 
             #Simulate trajectory
             trajectory_o = self.simulate_trajectory(self.nodes[closest_node_id].point, point)
+            # traj = np.array((3, self.num_substeps)) of points
 
             #Check for Collision
             print("TO DO: Check for collision.")
@@ -254,6 +346,7 @@ class PathPlanner:
 def main():
     #Set map information
     map_filename = "willowgarageworld_05res.png"
+    # map_filename = "simple_map.png"
     map_setings_filename = "willowgarageworld_05res.yaml"
 
     #robot information
@@ -262,9 +355,10 @@ def main():
 
     #RRT precursor
     path_planner = PathPlanner(map_filename, map_setings_filename, goal_point, stopping_dist)
-    nodes = path_planner.rrt_star_planning()
+    nodes = path_planner.rrt_planning()
     node_path_metric = np.hstack(path_planner.recover_path())
-
+    print(nodes)
+    print(node_path_metric)
     #Leftover test functions
     np.save("shortest_path.npy", node_path_metric)
 
