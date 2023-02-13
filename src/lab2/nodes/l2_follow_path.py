@@ -56,10 +56,10 @@ class PathFollower():
         self.collision_marker_pub = rospy.Publisher('~collision_marker', Marker, queue_size=1)
 
         # map
-        map = rospy.wait_for_message('/map', OccupancyGrid)
-        self.map_np = np.array(map.data).reshape(map.info.height, map.info.width)
-        self.map_resolution = round(map.info.resolution, 5)
-        self.map_origin = -utils.se2_pose_from_pose(map.info.origin)  # negative because of weird way origin is stored
+        self.map = rospy.wait_for_message('/map', OccupancyGrid)
+        self.map_np = np.array(self.map.data).reshape(self.map.info.height, self.map.info.width)
+        self.map_resolution = round(self.map.info.resolution, 5)
+        self.map_origin = -utils.se2_pose_from_pose(self.map.info.origin)  # negative because of weird way origin is stored
         #print(self.map_origin)
         self.map_nonzero_idxes = np.argwhere(self.map_np)
         #print(map)
@@ -129,11 +129,8 @@ class PathFollower():
             local_paths = np.zeros([self.horizon_timesteps + 1, self.num_opts, 3])
             local_paths[0] = np.atleast_2d(self.pose_in_map_np).repeat(self.num_opts, axis=0)
 
-            print("TO DO: Propogate the trajectory forward, storing the resulting points in local_paths!")
+            #print("TO DO: Propogate the trajectory forward, storing the resulting points in local_paths!")
             # === START CUSTOM CODE === 
-            current_pose = self.pose_in_map_np[:]
-            local_paths[0,0,:] = current_pose
-
             current_goal = self.cur_goal[:2]
 
             #Create array to track if collision is present:
@@ -142,27 +139,34 @@ class PathFollower():
             print(local_paths[0,0,:])
             for t in range(1, self.horizon_timesteps + 1):
                 path_idx = 0
-                for t_vel in range(0, len(TRANS_VEL_OPTS)):
-                    for r_vel in range(0, len(ROT_VEL_OPTS)):
+                for t_vel in range(0, len(TRANS_VEL_OPTS)-1):
+                    for r_vel in range(0, len(ROT_VEL_OPTS)-1):
                         
                         # Stop propagating paths that have already collided:
                         if collisions[path_idx] == 1:
+                            path_idx += 1
                             continue
                         
                         theta = local_paths[t-1,path_idx,2]
-                        q_dot = np.array([[np.cos(theta), 0],
-                                          [np.sin(theta), 0],
-                                          [0, 1]]) * \
-                                np.array([[t_vel],
-                                          [r_vel]])
+                        rot_mat = np.array([[np.cos(theta), 0],
+                                            [np.sin(theta), 0],
+                                            [0, 1]])
+                        vel_vec = np.array([t_vel, r_vel])
+                        q_dot = np.matmul(rot_mat, vel_vec) # shape (3, 1)
                         local_paths[t,path_idx,:] = local_paths[t-1,path_idx,:] + q_dot.T * INTEGRATION_DT
 
                         # Check if new path collides:
-                        if checkCollision(local_paths[t, path_idx, :]):
+                        new_point_pixels =  self.map_origin[:2] + local_paths[t,path_idx,2] / self.map_resolution
+                        if (new_point_pixels[0]<0 or new_point_pixels[0] >= self.map.info.width or new_point_pixels[1]<0 or new_point_pixels[1]>= self.map.info.width):
+                            collisions[path_idx] = 1
+                
+                        if self.map_np[int(new_point_pixels[0])][int(new_point_pixels[1])] > 0.65:
+                            local_paths[t,path_idx,:]
                             collisions[path_idx] = 1
                         path_idx += 1
-            print(local_paths[:,0,:])
+
             # check all trajectory points for collisions
+            '''
             # first find the closest collision point in the map to each local path point
             local_paths_pixels = (self.map_origin[:2] + local_paths[:, :, :2]) / self.map_resolution
             valid_opts = range(self.num_opts)
@@ -172,15 +176,24 @@ class PathFollower():
             for opt in range(local_paths_pixels.shape[1]):
                 for timestep in range(local_paths_pixels.shape[0]):
                     pass
-
+            '''
             # remove trajectories that were deemed to have collisions
-            print("TO DO: Remove trajectories with collisions!")
-
-            valid_opts = local_paths[:,np.where(collisions == 0 ),:]
-
+            #print("TO DO: Remove trajectories with collisions!")
+            valid_opts = np.where(collisions == 0)[0]
+            print(valid_opts)
             # calculate final cost and choose best option
-            print("TO DO: Calculate the final cost and choose the best control option!")
+            #print("TO DO: Calculate the final cost and choose the best control option!")
             final_cost = np.zeros(self.num_opts)
+            for n in range(0, len(valid_opts) - 1):
+                final_pos = local_paths[self.horizon_timesteps, valid_opts[n], :2]
+                # check euclidian distance to goal:
+                final_cost[n] = np.sqrt(np.sum(np.square(final_pos - current_goal)))
+
+
+            # === END CUSTOM CODE === 
+
+
+
             if final_cost.size == 0:  # hardcoded recovery if all options have collision
                 control = [-.1, 0]
             else:
