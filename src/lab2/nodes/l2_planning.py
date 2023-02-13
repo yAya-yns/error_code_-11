@@ -11,7 +11,7 @@ from scipy.linalg import block_diag
 
 
 def load_map(filename):
-    im = mpimg.imread("/home/mingshi/catkin_ws/src/lab2/maps/" + filename)
+    im = mpimg.imread("../maps/" + filename)
     if len(im.shape) > 2:
         im = im[:,:,0]
     im_np = np.array(im)  #Whitespace is true, black is false
@@ -20,7 +20,7 @@ def load_map(filename):
 
 
 def load_map_yaml(filename):
-    with open("/home/mingshi/catkin_ws/src/lab2/maps/" + filename, "r") as stream:
+    with open("../maps/" + filename, "r") as stream:
             map_settings_dict = yaml.safe_load(stream)
     return map_settings_dict
 
@@ -209,13 +209,54 @@ class PathPlanner:
         card_V = len(self.nodes)
         return min(self.gamma_RRT * (np.log(card_V) / card_V ) ** (1.0/2.0), self.epsilon)
     
-    def connect_node_to_point(self, node_i, point_f):
+    def connect_node_to_point(self, node_i : Node, point_f : np.ndarray):
         #Given two nodes find the non-holonomic path that connects them
         #Settings
         #node is a 3 by 1 node
         #point is a 2 by 1 point
-        print("TO DO: Implement a way to connect two already existing nodes (for rewiring).")
-        return np.zeros((3, self.num_substeps))
+
+        # the following code assumes that point_f is outside of the robot's maximum turn circle
+        point_f.reshape(2)
+        assert point_f.shape == (2,)
+        assert self.num_substeps >= 3
+
+        path = np.zeros((3, self.num_substeps))
+        min_radius = None #TODO: get minimum radius from velocity and maximum angular velocity
+
+        # first check if the point is at the left or right side of the robot
+        robot_xy, theta = node_i.point[0:2], node_i.point[2]
+        robot_direction = np.array([np.cos(theta), np.sin(theta)])  # vector representing forward direction of robot
+        robot_right_direction = np.array([np.sin(theta), -np.cos(theta)])   # vector representing right direction of robot
+
+        # use dot product to find whether point_f is on the right side of robot, and whether it is in front of the robot
+        on_right = np.sign(np.dot(robot_right_direction, point_f - robot_xy))
+        in_front = np.sign(np.dot(robot_direction, point_f - robot_xy))
+
+        # shit tone of math based on geometry
+        circle_centre = on_right * min_radius * robot_right_direction + robot_xy
+        circle_centre_to_point_f = point_f - circle_centre
+        circle_centre_to_point_f_length = np.linalg.norm(circle_centre - point_f)
+        alpha = np.arccos(min_radius / circle_centre_to_point_f_length)
+        beta = np.arctan2(circle_centre_to_point_f[1], circle_centre_to_point_f[0])
+        turning_point = (circle_centre + min_radius * np.array([np.cos(alpha + beta), np.sin(alpha + beta)])).reshape(2, 1)
+        theta_at_turning_point = np.arctan2(point_f[1] - turning_point[1], point_f[0] - turning_point[0])
+
+        # filling in the start, finish, and turning point
+        path[:, -1] = np.concatenate([point_f, theta_at_turning_point], axis=0)
+        path[:, -2] = np.concatenate([turning_point, theta_at_turning_point], axis=0)
+
+        # filling in the remaining points in the arc
+        gamma = np.arccos(np.dot((circle_centre - turning_point) / min_radius, (circle_centre - robot_xy) / min_radius))
+        gamma = gamma + (2 * (np.pi - gamma) if in_front == 1 else 0)
+
+        start_angle = alpha + beta + gamma
+        delta_angle = gamma / self.num_substeps
+
+        for i in range(self.num_substeps):
+            ang = start_angle + i * delta_angle
+            pos = (circle_centre + np.array([np.cos(ang), np.sin(ang)])).reshape(2, 1)
+            path[:, i] = np.concatenate([pos, theta - i * delta_angle])
+        return path
     
     def cost_to_come(self, trajectory_o):
         #The cost to get to a node from lavalle 
@@ -317,7 +358,7 @@ def main():
     nodes = path_planner.rrt_planning()
     node_path_metric = np.hstack(path_planner.recover_path())
     print(nodes)
-
+    print(node_path_metric)
     #Leftover test functions
     np.save("shortest_path.npy", node_path_metric)
 
