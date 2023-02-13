@@ -8,7 +8,7 @@
 docker stop $(docker ps -aq)
 docker rm $(docker ps -aq)
 
-IMAGE_NAME="default_utfr_ros2_image"
+IMAGE_NAME="default_rob521_ros_image"
 
 docker image rm $IMAGE_NAME
 
