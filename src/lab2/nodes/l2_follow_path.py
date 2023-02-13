@@ -19,8 +19,7 @@ import utils
 
 TRANS_GOAL_TOL = .1  # m, tolerance to consider a goal complete
 ROT_GOAL_TOL = .3  # rad, tolerance to consider a goal complete
-#TRANS_VEL_OPTS = [0, 0.025, 0.13, 0.26]  # m/s, max of real robot is .26
-TRANS_VEL_OPTS = [0.025,0.13]
+TRANS_VEL_OPTS = [0, 0.025, 0.1, 0.13, 0.26] # m/s, max of real robot is .26
 ROT_VEL_OPTS = np.linspace(-1.82, 1.82, 11)  # rad/s, max of real robot is 1.82
 #ROT_VEL_OPTS = [0, -1.82, 1.82]
 CONTROL_RATE = 5  # Hz, how frequently control signals are sent
@@ -31,6 +30,10 @@ ROT_DIST_MULT = .1  # multiplier to change effect of rotational distance in choo
 OBS_DIST_MULT = .1  # multiplier to change the effect of low distance to obstacles on a path
 MIN_TRANS_DIST_TO_USE_ROT = TRANS_GOAL_TOL  # m, robot has to be within this distance to use rot distance in cost
 PATH_NAME = 'path_complete.npy'  # saved path from l2_planning.py, should be in the same directory as this file
+
+# Tunable parameters:
+DISTANCE_WEIGHT = 1
+ROTATION_WEIGHT = 1
 
 # here are some hardcoded paths to use if you want to develop l2_planning and this file in parallel
 # TEMP_HARDCODE_PATH = [[2, 0, 0], [2.75, -1, -np.pi/2], [2.75, -4, -np.pi/2], [2, -4.4, np.pi]]  # almost collision-free
@@ -73,7 +76,7 @@ class PathFollower():
         self.collision_marker.header.frame_id = '/map'
         self.collision_marker.ns = '/collision_radius'
         self.collision_marker.id = 0
-        self.collision_marker.type = Marker.CYLINDER
+        self.collision_marker.type = Marker.CYLINDERself.cur_goal
         self.collision_marker.action = Marker.ADD
         self.collision_marker.scale.x = COLLISION_RADIUS * 2
         self.collision_marker.scale.y = COLLISION_RADIUS * 2
@@ -133,10 +136,11 @@ class PathFollower():
 
             #print("TO DO: Propogate the trajectory forward, storing the resulting points in local_paths!")
             # === START CUSTOM CODE === 
-            current_goal = self.cur_goal[:2]
 
             #Create array to track if collision is present:
             collisions = np.zeros(self.num_opts)
+            #Create array to track if target pose is within path:
+            complete = np.zeros(self.num_opts)
 
             #print(local_paths[0,0,:])
             for t in range(1, self.horizon_timesteps + 1):
@@ -150,29 +154,38 @@ class PathFollower():
                             path_idx += 1
                             continue
                         
+                        # Pass through paths that have satisified target requirements:
+                        if complete[path_idx] == 1:
+                            local_paths[t,path_idx,:] = local_paths[t-1,path_idx,:]
+                            path_idx += 1
+                            continue
+                        
                         theta = local_paths[t-1,path_idx,2]
                         rot_mat = np.array([[np.cos(theta), 0],
                                             [np.sin(theta), 0],
                                             [0, 1]])
                         vel_vec = np.array([t_vel, r_vel])
                         q_dot = np.matmul(rot_mat, vel_vec) # shape (3, 1)
-                        local_paths[t,path_idx,:] = local_paths[t-1,path_idx,:] + q_dot.T * INTEGRATION_DT
-                        # Check if new path collides:
                         
+
+                        local_paths[t,path_idx,:] = local_paths[t-1,path_idx,:] + q_dot.T * INTEGRATION_DT
+
+                        # check if new path satisifies target requirements:
+                        dist_from_goal = np.linalg.norm(local_paths[t,path_idx,:2] - self.cur_goal[:2])
+                        abs_angle_diff = np.abs(local_paths[t,path_idx,2] - self.cur_goal[2])
+                        rot_dist_from_goal = min(np.pi * 2 - abs_angle_diff, abs_angle_diff)
+                        if dist_from_goal < TRANS_GOAL_TOL and rot_dist_from_goal < ROT_GOAL_TOL:
+                            complete[path_idx] = 1
+                            path_idx += 1
+                            continue
+                        
+                        # Check if new path collides:
                         new_point_pixels =  (local_paths[t,path_idx,:2] + self.map_origin[:2] ) / self.map_resolution
-                        #if (new_point_pixels[0]<0 or new_point_pixels[0] >= self.map.info.width or new_point_pixels[1]<0 or new_point_pixels[1]>= self.map.info.width):
-                        #    collisions[path_idx] = 1
-
-                        #for collision_idx in range(0, len(self.map_nonzero_idxes)):
-                        #    if np.sqrt(np.sum(np.square(new_point_pixels - self.map_nonzero_idxes[collision_idx]))) < 10:
-                        #        collisions[path_idx] = 1
-                        #        break
-
                         if np.sum(self.map_np[int(new_point_pixels[1]):int(new_point_pixels[1])+3,int(new_point_pixels[0]-3):int(new_point_pixels[0])+3]) > 0.65:
                             local_paths[t,path_idx,:]
                             collisions[path_idx] = 1
-                        #print("occpancy map around next point:")
-                        #print(self.map_np[int(new_point_pixels[1])-5:int(new_point_pixels[1])+5,int(new_point_pixels[0])-5:int(new_point_pixels[0])+5])
+
+
                         path_idx += 1
       
             # check all trajectory points for collisions
@@ -196,16 +209,19 @@ class PathFollower():
             #print("TO DO: Calculate the final cost and choose the best control option!")
             final_cost = np.zeros_like(valid_opts, dtype=float)
             for n in range(0, len(valid_opts)):
-                final_pos = local_paths[self.horizon_timesteps, valid_opts[n], :2]
+                final_pos = local_paths[self.horizon_timesteps, valid_opts[n], :]
                 # check euclidian distance to goal:
-                final_cost[n] = np.sqrt(np.sum(np.square(final_pos - current_goal)))
+                final_cost[n] = DISTANCE_WEIGHT*np.sqrt(np.sum(np.square(final_pos[:2] - self.cur_goal[:2])))
+
+                # check rotation delta to goal:
+                final_cost[n] += ROTATION_WEIGHT*np.abs(final_pos[2] - self.cur_goal[2])
             # === END CUSTOM CODE === 
 
 
 
             if final_cost.size == 0:  # hardcoded recovery if all options have collision
                 control = [-.1, 0]
-            else:
+            else:continue
                 best_opt = valid_opts[final_cost.argmin()]
                 control = self.all_opts[best_opt]
                 self.local_path_pub.publish(utils.se2_pose_list_to_path(local_paths[:, best_opt], 'map'))
