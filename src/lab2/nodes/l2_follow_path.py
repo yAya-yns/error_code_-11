@@ -28,7 +28,7 @@ COLLISION_RADIUS = 0.225  # m, radius from base_link to use for collisions, min 
 ROT_DIST_MULT = .1  # multiplier to change effect of rotational distance in choosing correct control
 OBS_DIST_MULT = .1  # multiplier to change the effect of low distance to obstacles on a path
 MIN_TRANS_DIST_TO_USE_ROT = TRANS_GOAL_TOL  # m, robot has to be within this distance to use rot distance in cost
-PATH_NAME = 'path.npy'  # saved path from l2_planning.py, should be in the same directory as this file
+PATH_NAME = 'path_complete.npy'  # saved path from l2_planning.py, should be in the same directory as this file
 
 # here are some hardcoded paths to use if you want to develop l2_planning and this file in parallel
 # TEMP_HARDCODE_PATH = [[2, 0, 0], [2.75, -1, -np.pi/2], [2.75, -4, -np.pi/2], [2, -4.4, np.pi]]  # almost collision-free
@@ -89,8 +89,8 @@ class PathFollower():
         cur_dir = os.path.dirname(os.path.realpath(__file__))
 
         # to use the temp hardcoded paths above, switch the comment on the following two lines
-        self.path_tuples = np.load(os.path.join(cur_dir, 'path.npy')).T
-        # self.path_tuples = np.array(TEMP_HARDCODE_PATH)
+        #self.path_tuples = np.load(os.path.join(cur_dir, 'path.npy')).T
+        self.path_tuples = np.array(TEMP_HARDCODE_PATH)
 
         self.path = utils.se2_pose_list_to_path(self.path_tuples, 'map')
         self.global_path_pub.publish(self.path)
@@ -139,17 +139,17 @@ class PathFollower():
             #Create array to track if collision is present:
             collisions = np.zeros(self.num_opts)
 
-            print(current_pose)
+            print(local_paths[0,0,:])
             for t in range(1, self.horizon_timesteps + 1):
                 path_idx = 0
-                for t_vel in range(0, TRANS_VEL_OPTS):
-                    for r_vel in range(0, ROT_VEL_OPTS):
+                for t_vel in range(0, len(TRANS_VEL_OPTS)):
+                    for r_vel in range(0, len(ROT_VEL_OPTS)):
                         
                         # Stop propagating paths that have already collided:
                         if collisions[path_idx] == 1:
                             continue
                         
-                        theta = local_paths[t-1,path_idx,3]
+                        theta = local_paths[t-1,path_idx,2]
                         q_dot = np.array([[np.cos(theta), 0],
                                           [np.sin(theta), 0],
                                           [0, 1]]) * \
@@ -161,7 +161,7 @@ class PathFollower():
                         if checkCollision(local_paths[t, path_idx, :]):
                             collisions[path_idx] = 1
                         path_idx += 1
-
+            print(local_paths[:,0,:])
             # check all trajectory points for collisions
             # first find the closest collision point in the map to each local path point
             local_paths_pixels = (self.map_origin[:2] + local_paths[:, :, :2]) / self.map_resolution
