@@ -8,6 +8,7 @@ import pygame_utils
 import matplotlib.image as mpimg
 from skimage.draw import disk
 from scipy.linalg import block_diag
+import scipy
 
 
 def load_map(filename):
@@ -64,6 +65,7 @@ class PathPlanner:
 
         #Planning storage
         self.nodes = [Node(np.zeros((3,1)), -1, 0)]
+        self.node_pts = np.zeros((3,1))[:2][None]
 
         #RRT* Specific Parameters
         self.lebesgue_free = np.sum(self.occupancy_map) * self.map_settings_dict["resolution"] **2
@@ -85,8 +87,8 @@ class PathPlanner:
         #TODO this idk what it wants. not sure if this is enough. Hint is throwing me off
 
         rand = np.random.rand(2, 1)
-        rand[0] = rand[0] * self.occupancy_map.shape[0] 
-        rand[1] = rand[1] * self.occupancy_map.shape[1] 
+        rand[0] = rand[0] * (self.bounds[0, 1] - self.bounds[0, 0])  + self.bounds[0, 0]
+        rand[1] = rand[1] * (self.bounds[1, 1] - self.bounds[1, 0])  + self.bounds[1, 0] 
 
         return rand
     
@@ -107,7 +109,7 @@ class PathPlanner:
         return False
     
     def closest_node(self, point):
-        #Returns the index of the closest node
+        # Returns the index of the closest node
         # print("TO DO: Implement a method to get the closest node to a sampled point")
         closest = 1000000
         ind = False
@@ -116,6 +118,7 @@ class PathPlanner:
             if dist < closest:
                 closest = dist
                 ind = i
+
         return ind
     
     def simulate_trajectory(self, node_i, point_s):
@@ -123,10 +126,15 @@ class PathPlanner:
         #This function drives the robot from node_i towards point_s. This function does has many solutions!
         #node_i is a 3 by 1 vector [x;y;theta] this can be used to construct the SE(2) matrix T_{OI} in course notation
         #point_s is the sampled point vector [x; y]
-        print("TO DO: Implment a method to simulate a trajectory given a sampled point")
-        vel, rot_vel = self.robot_controller(node_i, point_s)
 
-        robot_traj = self.trajectory_rollout(vel, rot_vel)
+        # print("TO DO: Implment a method to simulate a trajectory given a sampled point")
+        vel, rot_vel = self.robot_controller(node_i, point_s)
+        vel = vel[None, :]
+        rot_vel = rot_vel[None, :]
+        print("vel: ", vel)
+        print("rot_vel: ", rot_vel)
+
+        robot_traj = self.trajectory_rollout(vel, rot_vel, node_i, point_s)
         return robot_traj
     
     def robot_controller(self, node_i, point_s):
@@ -134,50 +142,138 @@ class PathPlanner:
         #Max velocities should be enforced
         # print("TO DO: Implement a control scheme to drive you towards the sampled point")
 
-        d_x = point_s[0] - node_i[0]
-        d_y = point_s[1] - node_i[1]
-        d_theta = np.arctan2(d_y, d_x)
+        # d_x = node_i[0] - point_s[0]
+        # d_y = node_i[1] - point_s[1]
+        # d_theta = np.arctan2(d_y, d_x) - node_i[2]
 
-        dt = np.sqrt(d_x**2 + d_y**2)/(self.vel_max/2) 
+        # dt = np.sqrt(d_x**2 + d_y**2)/(self.vel_max/2) 
 
-        vel = np.sqrt(d_x**2 + d_y**2)/dt 
-        rot_vel = d_theta/dt
+        # vel = np.sqrt(d_x**2 + d_y**2)/dt 
+        # rot_vel = d_theta/dt
 
-        return vel, rot_vel
+        # if abs(vel) > self.vel_max:
+        #     if vel>0:
+        #         vel = np.array([self.vel_max])
+        #     else:
+        #         vel = -np.array([self.vel_max])
+        # if abs(rot_vel) > self.rot_vel_max:
+        #     if rot_vel>0:
+        #         rot_vel = np.array([self.rot_vel_max])
+        #     else:
+        #         rot_vel = -np.array([self.rot_vel_max])
+
+        vel_range = np.linspace(-self.vel_max, self.vel_max, 5)
+        omega_range = np.linspace(-self.rot_vel_max, self.rot_vel_max, 5)
+        vo = np.dstack(np.meshgrid(vel_range, omega_range)).reshape(-1, 2)
+        print(vo)
+        pts = self.trajectory_rollout(vo[:, 0:1], vo[:, 1:2], node_i, point_s)[:, -1:, :] # (N, 1, 3)
+        print("controller trajs: ", pts)
+        point_s = point_s[None, :, 0]
+        pts = pts[:, 0, :]
+        dtheta = 0 
+        best_input_ind = np.argmin(np.linalg.norm(point_s[:, :-1] - pts[:, :-1], axis = -1, ord = 1) + np.abs(dtheta), axis = 0)
+        v_omega = vo[best_input_ind]
+
+        return v_omega[0:1], v_omega[1:2]
+
+        # return vel, rot_vel
+
+    def is_collide(self, point):
+        disk = self.points_to_robot_circle(point)
+        if np.any(self.occupancy_map[disk[1].astype(int), disk[0].astype(int)]):
+            return 1
+        else:
+            return 0
     
-    def trajectory_rollout(self, vel, rot_vel):
+    def trajectory_rollout(self, vel, rot_vel, curr_pose, goal):
         # Given your chosen velocities determine the trajectory of the robot for your given timestep
         # The returned trajectory should be a series of points to check for collisions
         # print("TO DO: Implement a way to rollout the controls chosen")
         traj = np.zeros((3, self.num_substeps))
+        paths = []
+        n = rot_vel.shape[0]
 
-        # slide #6 lecture #5
-        theta = 0
-        rot_mat = np.array([[np.cos(theta), 0],
-                            [np.sin(theta), 0],
-                            [0, 1]])
-        vel_vec = np.array([vel, rot_vel])
-        q_dot = np.matmul(rot_mat, vel_vec) # shape (3, 1)
-
-        time = self.timestep * np.ones((1,3))
-        traj[:, 0] = np.matmul(time, q_dot)
-
-
-        for i in range(1, self.num_substeps):
-            theta = traj[2, i-1] 
+        time = self.timestep * np.ones((3,1))
+        t = np.linspace(0, self.timestep, self.num_substeps)[None, :]
+        theta = curr_pose[2][0]
+        traj_opts = np.zeros((n, self.num_substeps, 3)) #(N, num_substeps, 3)
+        
+        for i in range(n):
+            rot_vel_curr = rot_vel[i]
+            vel_curr = vel[i]
+            print("vel, rot_vel: ", vel_curr, rot_vel_curr)
             rot_mat = np.array([[np.cos(theta), 0],
-                            [np.sin(theta), 0],
-                            [0, 1]])
-            vel_vec = np.array([vel, rot_vel])
-            q_dot = np.matmul(rot_mat, vel_vec)
+                                    [np.sin(theta), 0],
+                                    [0, 1]])
+            vel_vec = np.array([vel_curr, rot_vel_curr])
+            q_dot = np.matmul(rot_mat, vel_vec) + curr_pose
+            waypoint = np.multiply(time, q_dot)
+            print("cell_to_point: ", waypoint, self.cell_to_point(waypoint))
+            if ~self.is_collide([self.cell_to_point(waypoint)]):
+                traj_opts[i, 0:1, :] = waypoint.T
+            else:
+                # print("collision detected ",rot_vel_curr, "and " ,vel_curr, "and ", waypoint)
+                return np.nan
 
-            traj[:, i] = np.matmul(time, q_dot)
+            for k in range(1, self.num_substeps):
+                theta = traj_opts[i, k-1:k, 2][0]
+                rot_mat = np.array([[np.cos(theta), 0],
+                                [np.sin(theta), 0],
+                                [0, 1]])
+                vel_vec = np.array([vel_curr, rot_vel_curr])
+                q_dot = np.matmul(rot_mat, vel_vec)
+                waypoint = np.multiply(time, q_dot)
+                traj_opts[i, k:k+1, :] = traj_opts[i, k-1:k, :] + waypoint.T
+            # traj_opts[i, :, 0:2] = (traj_opts[i, :, 0:2] + self.map_settings_dict['origin'][0:2])/self.map_settings_dict['resolution']
+            print("traj_opts curr: ",traj_opts[i, :, :])
+            print("goal: ", goal)
+            print("curr_pose: ", curr_pose)
+            input()
+                # if ~self.is_collide(waypoint):
+                #     traj_opts[i, k:k+1, :] = traj_opts[i, k-1:k, :] + waypoint.T
+                # else:
+                #     print("collision detected ",rot_vel_curr,  vel_curr, waypoint)
+                #     return np.nan
+        # traj_opts = traj_opts.squeeze()
+        # traj_opts = (traj_opts[:, :, 0:2] + self.map_settings_dict['origin'][0:2])/self.map_settings_dict['resolution']
+        print("traj: ",traj_opts)
+        return traj_opts.squeeze() #(N, self.num_substeps, 3)
+                
 
-        #TODO check that this is indeed giving out each node as cells in occupancy map
-        print(traj.T)
-        traj = np.round_(traj / self.map_settings_dict['resolution'])
-        print(traj.T)
-        return traj
+
+
+        # # -------slide #6 lecture #5 
+        # theta = curr_pose[2][0]
+
+        # for t_vel_idx in range(len(vel)):
+        #     for r_vel_idx in range(len(rot_vel)):
+        #         rot_mat = np.array([[np.cos(theta), 0],
+        #                             [np.sin(theta), 0],
+        #                             [0, 1]])
+        #         vel_vec = np.array([vel, rot_vel])
+        #         q_dot = np.matmul(rot_mat, vel_vec) # shape (3, 1)
+
+        #         time = self.timestep * np.ones((3,1))
+        #         traj_0 = np.multiply(time, q_dot)
+        #         traj[:, 0:1] = traj_0 + curr_pose
+
+        #         for i in range(1, self.num_substeps):
+        #             theta = traj[2, i-1] 
+        #             rot_mat = np.array([[np.cos(theta), 0],
+        #                             [np.sin(theta), 0],
+        #                             [0, 1]])
+        #             vel_vec = np.array([vel, rot_vel])
+        #             q_dot = np.matmul(rot_mat, vel_vec)
+
+        #             traj[:, i:i+1] = traj[:, i-1:i] + np.multiply(time, q_dot)
+
+        # #TODO check that this is indeed giving out each node as cells in occupancy map
+        # # got rid of adding map origin
+        # # print(traj.T)
+        # traj[0, :] = np.round_((traj[0, :] + self.map_settings_dict['origin'][0])) #/ self.map_settings_dict['resolution']))  
+        # traj[1, :] = np.round_((traj[1, :] + self.map_settings_dict['origin'][1])) #/ self.map_settings_dict['resolution']))
+        # print(traj.T)
+        # return traj[0:2, :]
     
     def point_to_cell(self, point):
         #Convert a series of [x,y] metric points in the map to the indices for the corresponding cell in the occupancy map
@@ -188,16 +284,31 @@ class PathPlanner:
         map_origin = self.map_settings_dict['origin'][0:2]
         res = self.map_settings_dict['resolution']
 
-        occ_points = point + np.tile(map_origin, (point.shape[1], 1))
+        occ_points = point + np.tile(map_origin, (len(point), 1))
         return occ_points/res
+
+    def cell_to_point(self, point):
+        #Convert a series of [x,y] metric points in the map to the indices for the corresponding cell in the occupancy map
+        #point is a 2 by N matrix of points of interest
+        # print("TO DO: Implement a method to get the map cell the robot is currently occupying")
+        # map origin = [-21.0, -49.25, 0.000000]
+        
+        map_origin = self.map_settings_dict['origin'][0:2]
+        res = self.map_settings_dict['resolution']
+
+        world_points = point*res - np.tile(map_origin, (len(point), 1))
+        return world_points
 
     def points_to_robot_circle(self, points):
         #Convert a series of [x,y] points to robot map footprints for collision detection
         #Hint: The disk function is included to help you with this function
         # print("TO DO: Implement a method to get the pixel locations of the robot path")
         map_circles = []
-        for i in range(points.shape[1]):
-            world_circles = disk((points[i][0], points[i][1]), self.robot_radius)
+        for i in range(len(points)):
+            world_circles_r, world_circles_c = disk((points[i][0][0], points[i][1][0]), self.robot_radius)
+            world_circles = np.array([world_circles_r, world_circles_c])
+            print((points[i][0][0], points[i][1][0]))
+            print(world_circles_r)
             map_circles.append(self.point_to_cell(world_circles))
         return map_circles
         # return [], []
@@ -272,12 +383,15 @@ class PathPlanner:
     def rrt_planning(self):
         #This function performs RRT on the given map and robot
         #You do not need to demonstrate this function to the TAs, but it is left in for you to check your work
-        for i in range(30): #Most likely need more iterations than this to complete the map!
+        path_finding = True
+        while True: #Most likely need more iterations than this to complete the map!
             #Sample map space
             point = self.sample_map_space()
 
             #Get the closest point
             closest_node_id = self.closest_node(point)
+            print("point: ", point)
+            print("closest node: ", self.nodes[closest_node_id].point)
 
             #Simulate driving the robot towards the closest point
             trajectory_o = self.simulate_trajectory(self.nodes[closest_node_id].point, point)
@@ -286,25 +400,58 @@ class PathPlanner:
             # print("TO DO: Check for collisions and add safe points to list of nodes.")
             # traj = np.array((3, self.num_substeps)) of points
             # check collision between two lines?
-            traj = trajectory_o.T
+            traj = trajectory_o
+            print('finished getting trajectory')
             collision = False
+            if np.sum(self.occupancy_map[traj[1, :].astype(int),traj[0, :].astype(int)]) > 0.65:
+                print("self occ: ",self.occupancy_map[traj[1, :].astype(int),traj[0, :].astype(int)])
+                print("traj: ",traj)
+                collision = True
+                print("collision true")
+                input()
+                continue
+
+            # self.bounds[0, 0] = self.map_settings_dict["origin"][0]
+            # self.bounds[1, 0] = self.map_settings_dict["origin"][1]
+            # self.bounds[0, 1] = self.map_settings_dict["origin"][0] + self.map_shape[1] * self.map_settings_dict["resolution"]
+            # self.bounds[1, 1] = self.map_settings_dict["origin"][1] + self.map_shape[0] * self.map_settings_dict["resolution"]
+
             for j in range(1, self.num_substeps):
-                if (traj[j][0]<0 or traj[j][0] >= self.map_shape[0] or traj[j][1]<0 or traj[j][1]>= self.map_shape[1]):
+                if (traj[j][0]<self.bounds[0, 0] or traj[j][0] > self.bounds[0, 1] or traj[j][1]<self.bounds[1, 0] or traj[j][1]> self.bounds[1, 1]):
                     collision = True
+                    print(traj[j])
+                    print(self.bounds[0, 0])
+                    print(self.bounds[1, 0])
+                    print(self.bounds[0, 1])
+                    print(self.bounds[1, 1])
+
+                    print("COLLISION OUT OF BOUNDS")
                     break
+                    
+
                 
-                print(traj[j][0])
-                print(traj[j][1])
-                if self.occupancy_map[int(traj[j][0])][int(traj[j][1])] > self.map_settings_dict['occupied_thresh']:
-                    collision = True
-                    break
+                # print(traj[j][0])
+                # print(traj[j][1])
+                # if self.occupancy_map[int(traj[j][1])][int(traj[j][0])] > self.map_settings_dict['occupied_thresh']:
+                #     collision = True
+                #     print(self.map_shape)
+                #     print(self.occupancy_map[int(traj[j][0])][int(traj[j][1])])
+                #     print(traj[j])
+                #     print("COLLISION WITH WALL")
+                #     break
                     
             if collision == False:
                 self.nodes.append(Node(point, closest_node_id))
+                print("adding node: ", )
             #Check if goal has been reached
             # print("TO DO: Check if at goal point.")
             if point[0] == self.goal_point[0] and point[1] == self.goal_point[1]:
+                path_finding = False
                 break
+        
+        
+        points = [i.point for i in self.nodes]
+        print(points)
 
         return self.nodes
     
@@ -345,8 +492,8 @@ class PathPlanner:
 
 def main():
     #Set map information
-    map_filename = "willowgarageworld_05res.png"
-    # map_filename = "simple_map.png"
+    # map_filename = "willowgarageworld_05res.png"
+    map_filename = "simple_map.png"
     map_setings_filename = "willowgarageworld_05res.yaml"
 
     #robot information
@@ -360,8 +507,7 @@ def main():
     print(nodes)
     print(node_path_metric)
     #Leftover test functions
-    np.save("shortest_path.npy", node_path_metric)
-
+    # np.save("shortest_path.npy", node_path_metric)
 
 if __name__ == '__main__':
     main()
