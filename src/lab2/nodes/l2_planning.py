@@ -86,9 +86,10 @@ class PathPlanner:
         #maybe sample occ map first?
         #TODO this idk what it wants. not sure if this is enough. Hint is throwing me off
 
-        rand = np.random.rand(2, 1)
+        rand = np.random.rand(3, 1)
         rand[0] = rand[0] * (self.bounds[0, 1] - self.bounds[0, 0])  + self.bounds[0, 0]
         rand[1] = rand[1] * (self.bounds[1, 1] - self.bounds[1, 0])  + self.bounds[1, 0] 
+        rand[2] = 0 
 
         return rand
     
@@ -135,7 +136,7 @@ class PathPlanner:
         print("vel: ", vel)
         print("rot_vel: ", rot_vel)
 
-        robot_traj = self.trajectory_rollout(vel, rot_vel, node_i, point_s)
+        robot_traj = -self.trajectory_rollout(vel, rot_vel, node_i, point_s)
         return robot_traj
     
     def robot_controller(self, node_i, point_s):
@@ -144,47 +145,56 @@ class PathPlanner:
         # print("TO DO: Implement a control scheme to drive you towards the sampled point")
         # recieve map points
 
-        # d_x = node_i[0] - point_s[0]
-        # d_y = node_i[1] - point_s[1]
-        # d_theta = np.arctan2(d_y, d_x) - node_i[2]
+        print("node: ", node_i)
+
+        d_x = node_i[0] - point_s[0]
+        d_y = node_i[1] - point_s[1]
+        d_theta = np.arctan2(point_s[1], point_s[0]) 
+        if d_theta < 0:
+            d_theta = 2*np.pi + d_theta
 
         # dt = np.sqrt(d_x**2 + d_y**2)/(self.vel_max/2) 
 
-        # vel = np.sqrt(d_x**2 + d_y**2)/dt 
-        # rot_vel = d_theta/dt
+        vel = np.sqrt(d_x**2 + d_y**2)/self.num_substeps
+        rot_vel = (d_theta - node_i[2])/self.num_substeps
 
-        # if abs(vel) > self.vel_max:
-        #     if vel>0:
-        #         vel = np.array([self.vel_max])
-        #     else:
-        #         vel = -np.array([self.vel_max])
-        # if abs(rot_vel) > self.rot_vel_max:
-        #     if rot_vel>0:
-        #         rot_vel = np.array([self.rot_vel_max])
-        #     else:
-        #         rot_vel = -np.array([self.rot_vel_max])
+        if abs(vel) > self.vel_max:
+            if vel>0:
+                vel = np.array([self.vel_max])
+            else:
+                vel = -np.array([self.vel_max])
+        if abs(rot_vel) > self.rot_vel_max:
+            if rot_vel>0:
+                rot_vel = np.array([self.rot_vel_max])
+            else:
+                rot_vel = -np.array([self.rot_vel_max])
 
-        vel_range = np.linspace(-self.vel_max, self.vel_max, 5)
-        omega_range = np.linspace(-self.rot_vel_max, self.rot_vel_max, 5)
-        vo = np.dstack(np.meshgrid(vel_range, omega_range)).reshape(-1, 2)
-        pts = self.trajectory_rollout(vo[:, 0:1], vo[:, 1:2], node_i, point_s)[:, -1:, :] # (N, 1, 3)
-        point_s = point_s[None, :, 0]
-        pts = pts[:, 0, :]
-        dtheta = 0 
-        best_input_ind = np.argmin(np.linalg.norm(point_s[:, :-1] - pts[:, :-1], axis = -1, ord = 1) + np.abs(dtheta), axis = 0)
-        v_omega = vo[best_input_ind]
+        # vel_range = np.linspace(-self.vel_max, self.vel_max, 5)
+        # omega_range = np.linspace(-self.rot_vel_max, self.rot_vel_max, 5)
+        # vo = np.dstack(np.meshgrid(vel_range, omega_range)).reshape(-1, 2)
+        # pts = self.trajectory_rollout(vo[:, 0:1], vo[:, 1:2], node_i, point_s)[:, -1:, :] # (N, 1, 3)
+        # point_s = point_s[None, :, 0]
+        # pts = pts[:, 0, :]
+        # dtheta = 0 
+        # best_input_ind = np.argmin(np.linalg.norm(point_s[:, :-1] - pts[:, :-1], axis = -1, ord = 1) + np.abs(dtheta), axis = 0)
+        # v_omega = vo[best_input_ind]
 
-        return v_omega[0:1], v_omega[1:2]
+        # return v_omega[0:1], v_omega[1:2]
 
-        # return vel, rot_vel
+        return vel, rot_vel
 
     def is_collide(self, points):
         # check for multiple points if collides with circle 
         disks = self.points_to_robot_circle(points.T)
-        print("white: ",np.where(self.occupancy_map == 0))
+        # print("white: ",np.where(self.occupancy_map == 1))
+        # print(self.bounds[0, 0])
+        # print(self.bounds[1, 0])
+        # print(self.bounds[0, 1])
+        # print(self.bounds[1, 1])
+        # print(self.occupancy_map[1][1])
         for disk in disks:
-            if np.any(self.occupancy_map[disk[1].astype(int), disk[0].astype(int)]):
-                print(disk, points, self.occupancy_map[disk[1].astype(int), disk[0].astype(int)])
+            if ~np.any(self.occupancy_map[disk[0].astype(int), disk[1].astype(int)]):
+                print(disk, points, self.occupancy_map[disk[0].astype(int), disk[1].astype(int)])
                 input()
                 return 1
             else:
@@ -395,7 +405,8 @@ class PathPlanner:
             # self.bounds[1, 1] = self.map_settings_dict["origin"][1] + self.map_shape[0] * self.map_settings_dict["resolution"]
 
             for j in range(1, self.num_substeps):
-                if (traj[j][0]<self.bounds[0, 0] or traj[j][0] > self.bounds[0, 1] or traj[j][1]<self.bounds[1, 0] or traj[j][1]> self.bounds[1, 1]):
+                # if (traj[j][0]<self.bounds[0, 0] or traj[j][0] > self.bounds[0, 1] or traj[j][1]<self.bounds[1, 0] or traj[j][1]> self.bounds[1, 1]):
+                if (traj[j][0]<0 or traj[j][0] > self.map_shape[0] or traj[j][1]<0 or traj[j][1]> self.map_shape[1]):
                     collision = True
                     print(traj[j])
                     print(self.bounds[0, 0])
@@ -406,30 +417,22 @@ class PathPlanner:
                     print("COLLISION OUT OF BOUNDS")
                     break
                     
-
-                
-                # print(traj[j][0])
-                # print(traj[j][1])
-                # if self.occupancy_map[int(traj[j][1])][int(traj[j][0])] > self.map_settings_dict['occupied_thresh']:
-                #     collision = True
-                #     print(self.map_shape)
-                #     print(self.occupancy_map[int(traj[j][0])][int(traj[j][1])])
-                #     print(traj[j])
-                #     print("COLLISION WITH WALL")
-                #     break
-                    
             if collision == False:
-                self.nodes.append(Node(point, closest_node_id))
-                print("adding node: ", )
+                dist = np.sqrt((self.nodes[closest_node_id].point[0]- point[0])**2 + (self.nodes[closest_node_id].point[1] - point[1])**2)
+                self.nodes.append(Node(point, closest_node_id, dist))
+                print("adding node: ", point)
+                print("dist to goal: ", np.linalg.norm(traj[-1, :] - self.goal_point))
             #Check if goal has been reached
             # print("TO DO: Check if at goal point.")
-            if point[0] == self.goal_point[0] and point[1] == self.goal_point[1]:
-                path_finding = False
+
+            if np.linalg.norm(traj[-1, :] - self.goal_point) < self.stopping_dist: # reached goal
+                self.goal_nodes[len(self.nodes) - 1] = self.nodes[-1]
+                self.best_goal_node_id = len(self.nodes) - 1
                 break
         
         
         points = [i.point for i in self.nodes]
-        print(points)
+        print("final points: ", points)
 
         return self.nodes
     
@@ -470,8 +473,8 @@ class PathPlanner:
 
 def main():
     #Set map information
-    # map_filename = "willowgarageworld_05res.png"
-    map_filename = "simple_map.png"
+    map_filename = "willowgarageworld_05res.png"
+    # map_filename = "simple_map.png"
     map_setings_filename = "willowgarageworld_05res.yaml"
 
     #robot information
