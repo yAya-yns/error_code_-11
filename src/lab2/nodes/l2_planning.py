@@ -136,7 +136,7 @@ class PathPlanner:
         print("vel: ", vel)
         print("rot_vel: ", rot_vel)
 
-        robot_traj = -self.trajectory_rollout(vel, rot_vel, node_i, point_s)
+        robot_traj = self.trajectory_rollout(vel, rot_vel, node_i, point_s)
         return robot_traj
     
     def robot_controller(self, node_i, point_s):
@@ -219,44 +219,31 @@ class PathPlanner:
         time = self.timestep/self.num_substeps * np.ones((3,1))
         theta = curr_pose[2][0]
         curr_pose[0:2] = self.cell_to_point(curr_pose[0:2]) #change to world for correct units
-        traj_opts = np.zeros((n, self.num_substeps, 3)) #(N, num_substeps, 3)
+        print("curr_pose: ", curr_pose)
+        print("theta: ", theta)
+        traj_opts = np.zeros((self.num_substeps, 3)) #(N, num_substeps, 3)
         
-        for i in range(n):
-            rot_vel_curr = rot_vel[i]
-            vel_curr = vel[i]
-            rot_mat = np.array([[np.cos(theta), 0],
-                                    [np.sin(theta), 0],
-                                    [0, 1]])
-            vel_vec = np.array([vel_curr, rot_vel_curr])
-            q_dot = np.matmul(rot_mat, vel_vec) + curr_pose
-            waypoint = np.multiply(time, q_dot)
-            # if ~self.is_collide([self.cell_to_point(waypoint[0:2])]):
-            #     traj_opts[i, 0:1, :] = waypoint.T
-            # else:
-                # print("collision detected ",rot_vel_curr, "and " ,vel_curr, "and ", waypoint)
-                # return np.nan
-            traj_opts[i, 0:1, :] = waypoint.T
-
-            for k in range(1, self.num_substeps):
-                theta = traj_opts[i, k-1:k, 2][0]
-                rot_mat = np.array([[np.cos(theta), 0],
+        rot_mat = np.array([[np.cos(theta), 0],
                                 [np.sin(theta), 0],
                                 [0, 1]])
-                vel_vec = np.array([vel_curr, rot_vel_curr])
-                q_dot = np.matmul(rot_mat, vel_vec)
-                waypoint = np.multiply(time, q_dot)
-                traj_opts[i, k:k+1, :] = traj_opts[i, k-1:k, :] + waypoint.T
-            # traj_opts[i, :, 0:2] = (traj_opts[i, :, 0:2] + self.map_settings_dict['origin'][0:2])/self.map_settings_dict['resolution']
-                # if ~self.is_collide(waypoint):
-                #     traj_opts[i, k:k+1, :] = traj_opts[i, k-1:k, :] + waypoint.T
-                # else:
-                #     print("collision detected ",rot_vel_curr,  vel_curr, waypoint)
-                #     return np.nan
-        # traj_opts = traj_opts.squeeze()
-        # traj_opts = (traj_opts[:, :, 0:2] + self.map_settings_dict['origin'][0:2])/self.map_settings_dict['resolution']
-        for i in range(traj_opts.shape[0]):
-            traj_opts[i, :, 0:2] = self.point_to_cell(traj_opts[i, :, 0:2].T).T
+        vel_vec = np.array([vel, rot_vel]).squeeze(-1)
+        q_dot = np.matmul(rot_mat, vel_vec) + curr_pose
+        waypoint = np.multiply(time, q_dot) + curr_pose
+        traj_opts[0:1, :] = waypoint.T
 
+        for k in range(1, self.num_substeps):
+            theta = traj_opts[k-1:k, 2][0]
+            rot_mat = np.array([[np.cos(theta), 0],
+                            [np.sin(theta), 0],
+                            [0, 1]])
+            q_dot = np.matmul(rot_mat, vel_vec) + traj_opts[k-1:k, :].T
+            waypoint = np.multiply(time, q_dot)
+            traj_opts[k:k+1, :] = traj_opts[k-1:k, :] + waypoint.T
+
+        print("traj before: ", traj_opts)
+        traj_opts[:, 0:2] = self.point_to_cell(traj_opts[:, 0:2].T).T
+        
+        print("traj after: ", traj_opts)
         return traj_opts.squeeze() #(N, self.num_substeps, 3) #MAP POINTS 
 
     
@@ -269,7 +256,7 @@ class PathPlanner:
         map_origin = self.map_settings_dict['origin'][0:2]
         res = self.map_settings_dict['resolution']
         occ_points = point + np.tile(map_origin, (point.shape[1], 1)).T
-        return np.round(occ_points/res)
+        return np.round(occ_points/res).astype(int)
 
     def cell_to_point(self, point):
         #Convert a series of [x,y] metric points in the map to the indices for the corresponding cell in the occupancy map
@@ -280,7 +267,7 @@ class PathPlanner:
         map_origin = self.map_settings_dict['origin'][0:2]
         res = self.map_settings_dict['resolution']
         world_points = point*res - np.tile(map_origin, (point.shape[1], 1)).T
-        return np.round(world_points)
+        return world_points
 
     def points_to_robot_circle(self, points):
         #Convert a series of [x,y] points to robot map footprints for collision detection
@@ -397,9 +384,10 @@ class PathPlanner:
             # print("TO DO: Check for collisions and add safe points to list of nodes.")
             # traj = np.array((3, self.num_substeps)) of points
             # check collision between two lines?
-            traj = trajectory_o # occupancy grid points
+            traj = trajectory_o.astype(int) # occupancy grid points
             print("traj: ",traj)
             print('finished getting trajectory')
+            input()
             collision = False
             if self.is_collide(traj[:, 0:2].T):
                 collision = True
@@ -417,10 +405,7 @@ class PathPlanner:
                 if (traj[j][0]<0 or traj[j][0] > self.map_shape[0] or traj[j][1]<0 or traj[j][1]> self.map_shape[1]):
                     collision = True
                     print(traj[j])
-                    print(self.bounds[0, 0])
-                    print(self.bounds[1, 0])
-                    print(self.bounds[0, 1])
-                    print(self.bounds[1, 1])
+                    print(self.map_shape)
 
                     print("COLLISION OUT OF BOUNDS")
                     break
@@ -481,8 +466,8 @@ class PathPlanner:
 
 def main():
     #Set map information
-    map_filename = "willowgarageworld_05res.png"
-    # map_filename = "simple_map.png"
+    # map_filename = "willowgarageworld_05res.png"
+    map_filename = "simple_map.png"
     map_setings_filename = "willowgarageworld_05res.yaml"
 
     #robot information
