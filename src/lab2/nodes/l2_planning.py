@@ -126,6 +126,7 @@ class PathPlanner:
         #This function drives the robot from node_i towards point_s. This function does has many solutions!
         #node_i is a 3 by 1 vector [x;y;theta] this can be used to construct the SE(2) matrix T_{OI} in course notation
         #point_s is the sampled point vector [x; y]
+        # recieve map points
 
         # print("TO DO: Implment a method to simulate a trajectory given a sampled point")
         vel, rot_vel = self.robot_controller(node_i, point_s)
@@ -141,6 +142,7 @@ class PathPlanner:
         #This controller determines the velocities that will nominally move the robot from node i to node s
         #Max velocities should be enforced
         # print("TO DO: Implement a control scheme to drive you towards the sampled point")
+        # recieve map points
 
         # d_x = node_i[0] - point_s[0]
         # d_y = node_i[1] - point_s[1]
@@ -165,9 +167,7 @@ class PathPlanner:
         vel_range = np.linspace(-self.vel_max, self.vel_max, 5)
         omega_range = np.linspace(-self.rot_vel_max, self.rot_vel_max, 5)
         vo = np.dstack(np.meshgrid(vel_range, omega_range)).reshape(-1, 2)
-        print(vo)
         pts = self.trajectory_rollout(vo[:, 0:1], vo[:, 1:2], node_i, point_s)[:, -1:, :] # (N, 1, 3)
-        print("controller trajs: ", pts)
         point_s = point_s[None, :, 0]
         pts = pts[:, 0, :]
         dtheta = 0 
@@ -178,12 +178,17 @@ class PathPlanner:
 
         # return vel, rot_vel
 
-    def is_collide(self, point):
-        disk = self.points_to_robot_circle(point)
-        if np.any(self.occupancy_map[disk[1].astype(int), disk[0].astype(int)]):
-            return 1
-        else:
-            return 0
+    def is_collide(self, points):
+        # check for multiple points if collides with circle 
+        disks = self.points_to_robot_circle(points.T)
+        print("white: ",np.where(self.occupancy_map == 0))
+        for disk in disks:
+            if np.any(self.occupancy_map[disk[1].astype(int), disk[0].astype(int)]):
+                print(disk, points, self.occupancy_map[disk[1].astype(int), disk[0].astype(int)])
+                input()
+                return 1
+            else:
+                return 0
     
     def trajectory_rollout(self, vel, rot_vel, curr_pose, goal):
         # Given your chosen velocities determine the trajectory of the robot for your given timestep
@@ -193,27 +198,26 @@ class PathPlanner:
         paths = []
         n = rot_vel.shape[0]
 
-        time = self.timestep * np.ones((3,1))
-        t = np.linspace(0, self.timestep, self.num_substeps)[None, :]
+        time = self.timestep/self.num_substeps * np.ones((3,1))
         theta = curr_pose[2][0]
+        curr_pose[0:2] = self.cell_to_point(curr_pose[0:2]) #change to world for correct units
         traj_opts = np.zeros((n, self.num_substeps, 3)) #(N, num_substeps, 3)
         
         for i in range(n):
             rot_vel_curr = rot_vel[i]
             vel_curr = vel[i]
-            print("vel, rot_vel: ", vel_curr, rot_vel_curr)
             rot_mat = np.array([[np.cos(theta), 0],
                                     [np.sin(theta), 0],
                                     [0, 1]])
             vel_vec = np.array([vel_curr, rot_vel_curr])
             q_dot = np.matmul(rot_mat, vel_vec) + curr_pose
             waypoint = np.multiply(time, q_dot)
-            print("cell_to_point: ", waypoint, self.cell_to_point(waypoint))
-            if ~self.is_collide([self.cell_to_point(waypoint)]):
-                traj_opts[i, 0:1, :] = waypoint.T
-            else:
+            # if ~self.is_collide([self.cell_to_point(waypoint[0:2])]):
+            #     traj_opts[i, 0:1, :] = waypoint.T
+            # else:
                 # print("collision detected ",rot_vel_curr, "and " ,vel_curr, "and ", waypoint)
-                return np.nan
+                # return np.nan
+            traj_opts[i, 0:1, :] = waypoint.T
 
             for k in range(1, self.num_substeps):
                 theta = traj_opts[i, k-1:k, 2][0]
@@ -225,10 +229,6 @@ class PathPlanner:
                 waypoint = np.multiply(time, q_dot)
                 traj_opts[i, k:k+1, :] = traj_opts[i, k-1:k, :] + waypoint.T
             # traj_opts[i, :, 0:2] = (traj_opts[i, :, 0:2] + self.map_settings_dict['origin'][0:2])/self.map_settings_dict['resolution']
-            print("traj_opts curr: ",traj_opts[i, :, :])
-            print("goal: ", goal)
-            print("curr_pose: ", curr_pose)
-            input()
                 # if ~self.is_collide(waypoint):
                 #     traj_opts[i, k:k+1, :] = traj_opts[i, k-1:k, :] + waypoint.T
                 # else:
@@ -236,80 +236,45 @@ class PathPlanner:
                 #     return np.nan
         # traj_opts = traj_opts.squeeze()
         # traj_opts = (traj_opts[:, :, 0:2] + self.map_settings_dict['origin'][0:2])/self.map_settings_dict['resolution']
-        print("traj: ",traj_opts)
-        return traj_opts.squeeze() #(N, self.num_substeps, 3)
-                
+        for i in range(traj_opts.shape[0]):
+            traj_opts[i, :, 0:2] = self.point_to_cell(traj_opts[i, :, 0:2].T).T
 
+        return traj_opts.squeeze() #(N, self.num_substeps, 3) #MAP POINTS 
 
-
-        # # -------slide #6 lecture #5 
-        # theta = curr_pose[2][0]
-
-        # for t_vel_idx in range(len(vel)):
-        #     for r_vel_idx in range(len(rot_vel)):
-        #         rot_mat = np.array([[np.cos(theta), 0],
-        #                             [np.sin(theta), 0],
-        #                             [0, 1]])
-        #         vel_vec = np.array([vel, rot_vel])
-        #         q_dot = np.matmul(rot_mat, vel_vec) # shape (3, 1)
-
-        #         time = self.timestep * np.ones((3,1))
-        #         traj_0 = np.multiply(time, q_dot)
-        #         traj[:, 0:1] = traj_0 + curr_pose
-
-        #         for i in range(1, self.num_substeps):
-        #             theta = traj[2, i-1] 
-        #             rot_mat = np.array([[np.cos(theta), 0],
-        #                             [np.sin(theta), 0],
-        #                             [0, 1]])
-        #             vel_vec = np.array([vel, rot_vel])
-        #             q_dot = np.matmul(rot_mat, vel_vec)
-
-        #             traj[:, i:i+1] = traj[:, i-1:i] + np.multiply(time, q_dot)
-
-        # #TODO check that this is indeed giving out each node as cells in occupancy map
-        # # got rid of adding map origin
-        # # print(traj.T)
-        # traj[0, :] = np.round_((traj[0, :] + self.map_settings_dict['origin'][0])) #/ self.map_settings_dict['resolution']))  
-        # traj[1, :] = np.round_((traj[1, :] + self.map_settings_dict['origin'][1])) #/ self.map_settings_dict['resolution']))
-        # print(traj.T)
-        # return traj[0:2, :]
     
     def point_to_cell(self, point):
-        #Convert a series of [x,y] metric points in the map to the indices for the corresponding cell in the occupancy map
+        #Convert a series of [x,y] indicies to metric points in the map
         #point is a 2 by N matrix of points of interest
         # print("TO DO: Implement a method to get the map cell the robot is currently occupying")
         # map origin = [-21.0, -49.25, 0.000000]
         
         map_origin = self.map_settings_dict['origin'][0:2]
         res = self.map_settings_dict['resolution']
-
-        occ_points = point + np.tile(map_origin, (len(point), 1))
-        return occ_points/res
+        occ_points = point + np.tile(map_origin, (point.shape[1], 1)).T
+        return np.round(occ_points/res)
 
     def cell_to_point(self, point):
         #Convert a series of [x,y] metric points in the map to the indices for the corresponding cell in the occupancy map
         #point is a 2 by N matrix of points of interest
         # print("TO DO: Implement a method to get the map cell the robot is currently occupying")
         # map origin = [-21.0, -49.25, 0.000000]
-        
+
         map_origin = self.map_settings_dict['origin'][0:2]
         res = self.map_settings_dict['resolution']
-
-        world_points = point*res - np.tile(map_origin, (len(point), 1))
-        return world_points
+        world_points = point*res - np.tile(map_origin, (point.shape[1], 1)).T
+        return np.round(world_points)
 
     def points_to_robot_circle(self, points):
         #Convert a series of [x,y] points to robot map footprints for collision detection
         #Hint: The disk function is included to help you with this function
         # print("TO DO: Implement a method to get the pixel locations of the robot path")
         map_circles = []
+        points = points.squeeze()
         for i in range(len(points)):
-            world_circles_r, world_circles_c = disk((points[i][0][0], points[i][1][0]), self.robot_radius)
+            world_circles_r, world_circles_c = disk((points[i][0], points[i][1]), self.robot_radius/self.map_settings_dict['resolution'])
             world_circles = np.array([world_circles_r, world_circles_c])
-            print((points[i][0][0], points[i][1][0]))
-            print(world_circles_r)
-            map_circles.append(self.point_to_cell(world_circles))
+            map_circles.append(world_circles)
+            # map_circles.append(self.point_to_cell(world_circles))
         return map_circles
         # return [], []
     #Note: If you have correctly completed all previous functions, then you should be able to create a working RRT function
@@ -408,18 +373,17 @@ class PathPlanner:
             print("closest node: ", self.nodes[closest_node_id].point)
 
             #Simulate driving the robot towards the closest point
-            trajectory_o = self.simulate_trajectory(self.nodes[closest_node_id].point, point)
+            trajectory_o = self.simulate_trajectory(self.nodes[closest_node_id].point, point) # map points
 
             #Check for collisions
             # print("TO DO: Check for collisions and add safe points to list of nodes.")
             # traj = np.array((3, self.num_substeps)) of points
             # check collision between two lines?
-            traj = trajectory_o
+            traj = trajectory_o # occupancy grid points
+            print("traj: ",traj)
             print('finished getting trajectory')
             collision = False
-            if np.sum(self.occupancy_map[traj[1, :].astype(int),traj[0, :].astype(int)]) > 0.65:
-                print("self occ: ",self.occupancy_map[traj[1, :].astype(int),traj[0, :].astype(int)])
-                print("traj: ",traj)
+            if self.is_collide(traj[:, 0:2].T):
                 collision = True
                 print("collision true")
                 input()
