@@ -64,7 +64,9 @@ class PathPlanner:
         self.num_substeps = 10
 
         #Planning storage
-        self.nodes = [Node(np.zeros((3,1)), -1, 0)]
+        node = np.zeros((3,1))
+        node[0:2] = self.cell_to_point(node[0:2]) 
+        self.nodes = [Node(node, -1, 0)]
         self.node_pts = np.zeros((3,1))[:2][None]
 
         #RRT* Specific Parameters
@@ -148,6 +150,8 @@ class PathPlanner:
         # print("node_i: ", node_i)
         # print("to point_s: ", point_s)
 
+        interval = 0.05
+
         d_x = node_i[0] - point_s[0]
         d_y = node_i[1] - point_s[1]
         # print("dx dy ", d_x, d_y)
@@ -160,9 +164,6 @@ class PathPlanner:
 
         vel = np.sqrt(d_x**2 + d_y**2)/self.num_substeps/7
         rot_vel = (d_theta - node_i[2])/self.num_substeps/7
-        # print("vel ", vel)
-        # print("rot_vel ", rot_vel)
-
         if abs(vel) > self.vel_max:
             if vel>0:
                 vel = np.array([self.vel_max])
@@ -173,26 +174,83 @@ class PathPlanner:
                 rot_vel = np.array([self.rot_vel_max])
             else:
                 rot_vel = -np.array([self.rot_vel_max])
+
+        vel_best = vel
+        rot_vel_best = rot_vel
+
+        if vel - interval > 0: vel_start = vel - interval
+        else: vel_start = 0
+
+        if vel + interval < self.vel_max: vel_stop = vel + interval
+        else: vel_stop = self.vel_max
+
+        if rot_vel - interval > 0: rot_vel_start = rot_vel - interval
+        else: rot_vel_start = 0
+
+        if rot_vel + interval < self.rot_vel_max: rot_vel_stop = rot_vel + interval
+        else: rot_vel_stop = self.rot_vel_max
+
+        rot_list = np.linspace(rot_vel_start, rot_vel_stop, num=5)
+        vel_list = np.linspace(vel_start, vel_stop, num=5)
+
+        traj_opts = np.zeros((rot_list.shape[0]**2, self.num_substeps, 3))
+        i=0
+
+        ind_list = np.zeros((rot_list.shape[0]**2, 2))
+        for rot in range(rot_list.shape[0]):
+            for vel in range(vel_list.shape[0]):
+                curr_traj = self.trajectory_rollout(vel_list[vel][None, :], rot_list[rot][None, :], node_i, point_s)
+                ind_list[i] = np.array([vel, rot])
+                if self.is_collide(curr_traj[:, 0:2].T):
+                    print("collision true")
+                    traj_opts[i, :, :] = np.inf * np.ones((self.num_substeps, 3))
+
+                    i += 1
+                    continue
+                for j in range(0, self.num_substeps):
+                    if (curr_traj[j][0]<0 or curr_traj[j][0] > self.map_shape[0] or curr_traj[j][1]<0 or curr_traj[j][1]> self.map_shape[1]):
+                        collision = True
+                        print(curr_traj[j])
+                        print(self.map_shape)
+
+                        print("COLLISION OUT OF BOUNDS")
+                        break
+                traj_opts[i, :, :] = self.trajectory_rollout(vel_list[vel][None, :], rot_list[rot][None, :], node_i, point_s)
+                i += 1
+
+        best_dist = np.inf
+        for i in range(traj_opts.shape[0]):
+            dist = np.linalg.norm(traj_opts[i,-1, :] - point_s)
+            if dist < best_dist:
+                ind = ind_list[i]
+                vel_best = vel_list[int(ind[0])]
+                rot_vel_best = rot_list[int(ind[1])]
+
+        return vel_best, rot_vel_best
+        # if abs(vel) > self.vel_max:
+        #     if vel>0:
+        #         vel = np.array([self.vel_max])
+        #     else:
+        #         vel = -np.array([self.vel_max])
+        # if abs(rot_vel) > self.rot_vel_max:
+        #     if rot_vel>0:
+        #         rot_vel = np.array([self.rot_vel_max])
+        #     else:
+        #         rot_vel = -np.array([self.rot_vel_max])
         # print("vel after ", vel)
         # print("rot_vel after ", rot_vel)
         # input()
-
-        # vel_range = np.linspace(-self.vel_max, self.vel_max, 5)
-        # omega_range = np.linspace(-self.rot_vel_max, self.rot_vel_max, 5)
-        # vo = np.dstack(np.meshgrid(vel_range, omega_range)).reshape(-1, 2)
-        # pts = self.trajectory_rollout(vo[:, 0:1], vo[:, 1:2], node_i, point_s)[:, -1:, :] # (N, 1, 3)
-        # point_s = point_s[None, :, 0]
-        # pts = pts[:, 0, :]
-        # dtheta = 0 
-        # best_input_ind = np.argmin(np.linalg.norm(point_s[:, :-1] - pts[:, :-1], axis = -1, ord = 1) + np.abs(dtheta), axis = 0)
-        # v_omega = vo[best_input_ind]
-
-        # return v_omega[0:1], v_omega[1:2]
-
-        return vel, rot_vel
+        
 
     def is_collide(self, points):
         # check for multiple points if collides with circle 
+        for j in range(points.shape[0]):
+            if (points[j][0]<0 or points[j][0] > self.map_shape[0] or points[j][1]<0 or points[j][1]> self.map_shape[1]):
+                print(points[j])
+                print(self.map_shape)
+                print("COLLISION OUT OF BOUNDS")
+                return 1
+            
         disks = self.points_to_robot_circle(points.T)
         # print("white: ",np.where(self.occupancy_map == 1))
         # print(self.bounds[0, 0])
@@ -201,9 +259,8 @@ class PathPlanner:
         # print(self.bounds[1, 1])
         # print(self.occupancy_map[1][1])
         for disk in disks:
-            if ~np.any(self.occupancy_map[disk[0].astype(int), disk[1].astype(int)]):
+            if np.sum(self.occupancy_map[disk[0].astype(int), disk[1].astype(int)])<self.map_settings_dict['occupied_thresh']:
                 print(disk, points, self.occupancy_map[disk[0].astype(int), disk[1].astype(int)])
-                input()
                 return 1
             else:
                 return 0
@@ -218,7 +275,7 @@ class PathPlanner:
 
         time = self.timestep/self.num_substeps * np.ones((3,1))
         theta = curr_pose[2][0]
-        curr_pose[0:2] = self.cell_to_point(curr_pose[0:2]) #change to world for correct units
+        # curr_pose[0:2] = self.cell_to_point(curr_pose[0:2]) #change to world for correct units
         print("curr_pose: ", curr_pose)
         print("theta: ", theta)
         traj_opts = np.zeros((self.num_substeps, 3)) #(N, num_substeps, 3)
@@ -244,7 +301,7 @@ class PathPlanner:
         traj_opts[:, 0:2] = self.point_to_cell(traj_opts[:, 0:2].T).T
         
         print("traj after: ", traj_opts)
-        return traj_opts.squeeze() #(N, self.num_substeps, 3) #MAP POINTS 
+        return abs(traj_opts.squeeze()) #(N, self.num_substeps, 3) #MAP POINTS 
 
     
     def point_to_cell(self, point):
@@ -370,6 +427,7 @@ class PathPlanner:
         path_finding = True
         while True: #Most likely need more iterations than this to complete the map!
             #Sample map space
+            input() 
             point = self.sample_map_space()
 
             #Get the closest point
@@ -387,28 +445,29 @@ class PathPlanner:
             traj = trajectory_o.astype(int) # occupancy grid points
             print("traj: ",traj)
             print('finished getting trajectory')
-            input()
-            collision = False
-            if self.is_collide(traj[:, 0:2].T):
-                collision = True
-                print("collision true")
-                input()
-                continue
-
             # self.bounds[0, 0] = self.map_settings_dict["origin"][0]
             # self.bounds[1, 0] = self.map_settings_dict["origin"][1]
             # self.bounds[0, 1] = self.map_settings_dict["origin"][0] + self.map_shape[1] * self.map_settings_dict["resolution"]
             # self.bounds[1, 1] = self.map_settings_dict["origin"][1] + self.map_shape[0] * self.map_settings_dict["resolution"]
+            collision = False
 
-            for j in range(1, self.num_substeps):
-                # if (traj[j][0]<self.bounds[0, 0] or traj[j][0] > self.bounds[0, 1] or traj[j][1]<self.bounds[1, 0] or traj[j][1]> self.bounds[1, 1]):
-                if (traj[j][0]<0 or traj[j][0] > self.map_shape[0] or traj[j][1]<0 or traj[j][1]> self.map_shape[1]):
-                    collision = True
-                    print(traj[j])
-                    print(self.map_shape)
+            # for j in range(0, self.num_substeps):
+            #     # if (traj[j][0]<self.bounds[0, 0] or traj[j][0] > self.bounds[0, 1] or traj[j][1]<self.bounds[1, 0] or traj[j][1]> self.bounds[1, 1]):
+            #     if (traj[j][0]<0 or traj[j][0] > self.map_shape[0] or traj[j][1]<0 or traj[j][1]> self.map_shape[1]):
+            #         collision = True
+            #         print(traj[j])
+            #         print(self.map_shape)
 
-                    print("COLLISION OUT OF BOUNDS")
-                    break
+            #         print("COLLISION OUT OF BOUNDS")
+            #         break
+
+            # if collision:
+            #     continue
+            
+            if self.is_collide(traj[:, 0:2].T):
+                collision = True
+                print("collision true")
+                continue
                     
             if collision == False:
                 dist = np.sqrt((self.nodes[closest_node_id].point[0]- point[0])**2 + (self.nodes[closest_node_id].point[1] - point[1])**2)
@@ -417,7 +476,8 @@ class PathPlanner:
                 print("dist to goal: ", np.linalg.norm(traj[-1, :] - self.goal_point))
             #Check if goal has been reached
             # print("TO DO: Check if at goal point.")
-
+            print("dist to goal: ", np.linalg.norm(traj[-1, :] - self.goal_point))
+            print("curr nodes scatter:", [i.point for i in self.nodes])
             if np.linalg.norm(traj[-1, :] - self.goal_point) < self.stopping_dist: # reached goal
                 self.goal_nodes[len(self.nodes) - 1] = self.nodes[-1]
                 self.best_goal_node_id = len(self.nodes) - 1
