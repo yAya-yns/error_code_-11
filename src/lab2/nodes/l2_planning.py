@@ -145,18 +145,23 @@ class PathPlanner:
         # print("TO DO: Implement a control scheme to drive you towards the sampled point")
         # recieve map points
 
-        print("node: ", node_i)
+        # print("node_i: ", node_i)
+        # print("to point_s: ", point_s)
 
         d_x = node_i[0] - point_s[0]
         d_y = node_i[1] - point_s[1]
+        # print("dx dy ", d_x, d_y)
         d_theta = np.arctan2(point_s[1], point_s[0]) 
         if d_theta < 0:
             d_theta = 2*np.pi + d_theta
+        # print("dtheta ", d_theta)
 
         # dt = np.sqrt(d_x**2 + d_y**2)/(self.vel_max/2) 
 
-        vel = np.sqrt(d_x**2 + d_y**2)/self.num_substeps
-        rot_vel = (d_theta - node_i[2])/self.num_substeps
+        vel = np.sqrt(d_x**2 + d_y**2)/self.num_substeps/7
+        rot_vel = (d_theta - node_i[2])/self.num_substeps/7
+        # print("vel ", vel)
+        # print("rot_vel ", rot_vel)
 
         if abs(vel) > self.vel_max:
             if vel>0:
@@ -168,6 +173,9 @@ class PathPlanner:
                 rot_vel = np.array([self.rot_vel_max])
             else:
                 rot_vel = -np.array([self.rot_vel_max])
+        # print("vel after ", vel)
+        # print("rot_vel after ", rot_vel)
+        # input()
 
         # vel_range = np.linspace(-self.vel_max, self.vel_max, 5)
         # omega_range = np.linspace(-self.rot_vel_max, self.rot_vel_max, 5)
