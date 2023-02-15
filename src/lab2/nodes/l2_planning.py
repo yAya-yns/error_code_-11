@@ -325,44 +325,73 @@ class PathPlanner:
             else:
                 return 0
     
-    def trajectory_rollout(self, vel : float, rot_vel : float, curr_pose) -> np.ndarray:
-        # Given your chosen velocities determine the trajectory of the robot for your given timestep
+    def trajectory_rollout(self, vel : float, rot_vel : float, curr_pose : np.ndarray) -> np.ndarray:
+        # Given your chosen velocities determine the trajectory of the robot for your gtimestep
         # The returned trajectory should be a series of points to check for collisions
         #RECIEVE WORLD POINTS
+        assert curr_pose.shape == (3,), curr_pose.shape
+        assert type(vel) == type(rot_vel) and type(vel) in [np.float64, float], type(vel)
+        assert vel > 0
 
-        assert type(vel) == type(rot_vel) and type(vel) in [np.float64, float]
+        robot_xy, theta = curr_pose[0:2], curr_pose[2]
+        robot_direction = np.array([np.cos(theta), np.sin(theta)])  # vector representing forward direction of robot
 
-        # traj = np.zeros((3, self.num_substeps))
-        # paths = []
-        # n = rot_vel.shape[0]
-
-        time = self.timestep/self.num_substeps * np.ones((3,1))
-        theta = curr_pose[2][0]
-        # curr_pose[0:2] = self.cell_to_point(curr_pose[0:2]) #change to world for correct units
-        # print("curr_pose: ", curr_pose)
-        # print("theta: ", theta)
-        traj_opts = np.zeros((self.num_substeps, 3)) #(N, num_substeps, 3)
+        # return a straight line if w=0
+        if rot_vel == 0:
+            temp = np.linspace([1, 1], [self.num_substeps, self.num_substeps], self.num_substeps).T - 1
+            ret = np.zeros((3, self.num_substeps))
+            ret[0:2, :] = temp * vel * robot_direction.reshape(2, 1) * self.timestep + robot_xy.reshape(2, 1) # broadcast
+            ret[2, :] = theta
+            return ret
         
-        rot_mat = np.array([[np.cos(theta), 0],
-                                [np.sin(theta), 0],
-                                [0, 1]])
-        vel_vec = np.array([vel, rot_vel])
-        q_dot = np.matmul(rot_mat, vel_vec) #+ curr_pose
-        waypoint = np.multiply(time, q_dot) + curr_pose
-        traj_opts[0:1, :] = waypoint.T
+        # extract sign from w
+        on_right = np.sign(rot_vel) * -1
+        rot_vel = np.abs(rot_vel)
+        robot_right_direction = np.array([np.sin(theta), -np.cos(theta)])   # vector representing right direction of robot
 
-        for k in range(1, self.num_substeps):
-            theta = traj_opts[k-1:k, 2][0]
-            rot_mat = np.array([[np.cos(theta), 0],
-                            [np.sin(theta), 0],
-                            [0, 1]])
-            q_dot = np.matmul(rot_mat, vel_vec) #+ traj_opts[k-1:k, :].T
-            waypoint = np.multiply(time, q_dot)
-            traj_opts[k:k+1, :] = traj_opts[k-1:k, :] + waypoint.T
+        # get radius and circle centre
+        radius = vel / rot_vel
+        circle_centre = radius * on_right * robot_right_direction + robot_xy
 
-        # traj_opts[:, 0:2] = self.point_to_cell(traj_opts[:, 0:2].T).T #turn to map
+        # generate trajectory along circle
+        start_angle = theta + np.pi/2 * on_right
+        delta_angle = rot_vel * self.timestep
+
+        traj = np.zeros((3, self.num_substeps))
+        for i in range(self.num_substeps):
+            ang = start_angle - i * delta_angle * on_right
+            traj[2, i] = theta - i * delta_angle * on_right
+            pos = (circle_centre + radius * np.array([np.cos(ang), np.sin(ang)]))
+            traj[0:2, i] = pos
+        return traj
+
+        # time = self.timestep/self.num_substeps * np.ones((3,1))
+        # theta = curr_pose[2][0]
+        # # curr_pose[0:2] = self.cell_to_point(curr_pose[0:2]) #change to world for correct units
+        # # print("curr_pose: ", curr_pose)
+        # # print("theta: ", theta)
+        # traj_opts = np.zeros((self.num_substeps, 3)) #(N, num_substeps, 3)
         
-        return traj_opts # .squeeze().astype(int) #(N, self.num_substeps, 3) #MAP POINTS 
+        # rot_mat = np.array([[np.cos(theta), 0],
+        #                         [np.sin(theta), 0],
+        #                         [0, 1]])
+        # vel_vec = np.array([vel, rot_vel])
+        # q_dot = np.matmul(rot_mat, vel_vec) #+ curr_pose
+        # waypoint = np.multiply(time, q_dot) + curr_pose
+        # traj_opts[0:1, :] = waypoint.T
+
+        # for k in range(1, self.num_substeps):
+        #     theta = traj_opts[k-1:k, 2][0]
+        #     rot_mat = np.array([[np.cos(theta), 0],
+        #                     [np.sin(theta), 0],
+        #                     [0, 1]])
+        #     q_dot = np.matmul(rot_mat, vel_vec) #+ traj_opts[k-1:k, :].T
+        #     waypoint = np.multiply(time, q_dot)
+        #     traj_opts[k:k+1, :] = traj_opts[k-1:k, :] + waypoint.T
+
+        # # traj_opts[:, 0:2] = self.point_to_cell(traj_opts[:, 0:2].T).T #turn to map
+        
+        # return traj_opts # .squeeze().astype(int) #(N, self.num_substeps, 3) #MAP POINTS 
 
     
     def point_to_cell(self, point):
@@ -473,7 +502,6 @@ class PathPlanner:
 
         for i in range(self.num_substeps - 1):
             ang = start_angle + i * delta_angle
-            print(ang)
             pos = (circle_centre + min_radius * np.array([np.cos(ang), np.sin(ang)]))
             path[:, i] = np.concatenate([pos, [theta - i * delta_angle]])
 
