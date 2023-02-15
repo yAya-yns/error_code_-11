@@ -84,7 +84,7 @@ class PathPlanner:
         #Pygame window for visualization
         if display_window:
             self.window = pygame_utils.PygameWindow(
-                "Path Planner", (1000, 1000), self.occupancy_map.shape, self.map_settings_dict, self.goal_point, self.stopping_dist)
+                "Path Planner", (500, 500), self.occupancy_map.shape, self.map_settings_dict, self.goal_point, self.stopping_dist)
         return
 
     #Functions required for RRT
@@ -168,7 +168,7 @@ class PathPlanner:
         # print("TO DO: Implment a method to simulate a trajectory given a sampled point") uhhh 
         print("node_i:", node_i)
         print("point_s:", point_s)
-        vel, rot_vel = self.robot_controller(node_i, point_s)
+        vel, rot_vel = self.robot_controller(node_i.reshape(-1), point_s[0:2])
         print("vel: ", vel)
         print("rot_vel: ", rot_vel)
 
@@ -176,100 +176,141 @@ class PathPlanner:
         # calc how much time needed for generated vels to get to point_s
 
 
-        robot_traj = self.trajectory_rollout(vel[None, :], rot_vel[None, :], node_i, point_s)
+        robot_traj = self.trajectory_rollout(vel, rot_vel, node_i)
         return robot_traj, vel, rot_vel
     
-    def robot_controller(self, node_i, point_s):
+    def robot_controller(self, node_i : np.ndarray, point_s : np.ndarray):
         #This controller determines the velocities that will nominally move the robot from node i to node s
         #Max velocities should be enforced
-        # print("TO DO: Implement a control scheme to drive you towards the sampled point")
+        assert node_i.shape == (3,)
+        assert point_s.shape == (2,), point_s.shape
+
+        # determine if point_s is on the right side of the robot
+        robot_xy, theta = node_i[0:2], node_i[2]
+        robot_right_direction = np.array([np.sin(theta), -np.cos(theta)])   # vector representing right direction of robot
+        on_right = np.sign(np.dot(robot_right_direction, point_s - robot_xy))
+
+        # compute the radius of the circle
+        start_to_end_vec = point_s - robot_xy
+        radius = 0.5 * np.linalg.norm(robot_xy - point_s) / np.dot(start_to_end_vec / np.linalg.norm(start_to_end_vec), robot_right_direction * on_right)
+
+        # calculate v and w based on circle radius
+        ret_v = radius * self.rot_vel_max
+        ret_w = -1 * self.rot_vel_max * on_right
+
+        # normalize v and w to ensure it doesn't exceed constraint
+        if ret_v > self.vel_max:
+            factor = self.vel_max / ret_v
+            ret_v = factor * ret_v
+            ret_w = factor * ret_w
         
-        # recieve WORLD points
-        interval = 0.05
+        return ret_v, ret_w
+        
+        
+        # # recieve WORLD points
+        # interval = 0.05
 
-        d_x = point_s[0] - node_i[0]
-        d_y = point_s[1] - node_i[1] 
-        # print("dx dy ", d_x, d_y)
-        d_theta = np.arctan2(point_s[1], point_s[0]) 
-        # if d_theta < 0:
-        #     d_theta = 2*np.pi + d_theta
-        # dt = np.sqrt(d_x**2 + d_y**2)/(self.vel_max/2) 
 
-        vel = np.sqrt(d_x**2 + d_y**2)/self.num_substeps/3
-        # vel = np.array([0.2])
-        rot_vel = (d_theta - node_i[2])/self.num_substeps
+        # d_x = point_s[0] - node_i[0]
+        # d_y = point_s[1] - node_i[1] 
+        # # print("dx dy ", d_x, d_y)
+        # d_theta = np.arctan2(point_s[1], point_s[0]) 
+        # # if d_theta < 0:
+        # #     d_theta = 2*np.pi + d_theta
+        # # dt = np.sqrt(d_x**2 + d_y**2)/(self.vel_max/2) 
 
-        if abs(vel) > self.vel_max:
-            if vel>0:
-                vel = np.array([self.vel_max])
-            else:
-                vel = -np.array([self.vel_max])
-        if abs(rot_vel) > self.rot_vel_max:
-            if rot_vel>0:
-                rot_vel = np.array([self.rot_vel_max])
-            else:
-                rot_vel = -np.array([self.rot_vel_max])
+        # vel = np.sqrt(d_x**2 + d_y**2)/self.num_substeps/3
+        # # vel = np.array([0.2])
+        # rot_vel = (d_theta - node_i[2])/self.num_substeps
 
-        vel_best = vel
-        rot_vel_best = rot_vel
-        # vel_start = vel - interval
-        # vel_stop = vel + interval
-        # rot_vel_start = rot_vel - interval
-        # rot_vel_stop = rot_vel + interval
+        # print(f'self.rot_vel_max: {self.rot_vel_max}')
 
-        if vel - interval > -self.vel_max: vel_start = vel - interval
-        else: vel_start = -self.vel_max
+        # if abs(vel) > self.vel_max:
+        #     if vel>0:
+        #         vel = np.array([self.vel_max])
+        #     else:
+        #         vel = -np.array([self.vel_max])
+        # if abs(rot_vel) > self.rot_vel_max:
+        #     if rot_vel>0:
+        #         rot_vel = np.array([self.rot_vel_max])
+        #     else:
+        #         rot_vel = -np.array([self.rot_vel_max])
 
-        if vel + interval < self.vel_max: vel_stop = vel + interval
-        else: vel_stop = self.vel_max
+        # vel_best = vel
+        # rot_vel_best = rot_vel
+        # # vel_start = vel - interval
+        # # vel_stop = vel + interval
+        # # rot_vel_start = rot_vel - interval
+        # # rot_vel_stop = rot_vel + interval
 
-        if rot_vel - interval > -self.rot_vel_max: rot_vel_start = rot_vel - interval
-        else: rot_vel_start = -self.rot_vel_max
+        # if vel - interval > -self.vel_max: vel_start = vel - interval
+        # else: vel_start = -self.vel_max
 
-        if rot_vel + interval < self.rot_vel_max: rot_vel_stop = rot_vel + interval
-        else: rot_vel_stop = self.rot_vel_max
+        # if vel + interval < self.vel_max: vel_stop = vel + interval
+        # else: vel_stop = self.vel_max
 
-        rot_list = np.linspace(rot_vel_start, rot_vel_stop, num=5)
-        vel_list = np.linspace(vel_start, vel_stop, num=5)
+        # if rot_vel - interval > -self.rot_vel_max: rot_vel_start = rot_vel - interval
+        # else: rot_vel_start = -self.rot_vel_max
 
-        traj_opts = np.zeros((rot_list.shape[0]**2, self.num_substeps, 3))
-        i=0
+        # if rot_vel + interval < self.rot_vel_max: rot_vel_stop = rot_vel + interval
+        # else: rot_vel_stop = self.rot_vel_max
+
+        # print(f'rot_vel_start: {rot_vel_start}')
+
+        # rot_list = np.linspace(rot_vel_start, rot_vel_stop, num=5)
+        # vel_list = np.linspace(vel_start, vel_stop, num=5)
+
+        # print(rot_list)
+
+        # traj_opts = np.zeros((rot_list.shape[0]**2, self.num_substeps, 3))
+        # i=0
     
-        ind_list = np.zeros((rot_list.shape[0]**2, 2))
-        for rot in range(rot_list.shape[0]):
-            for vel in range(vel_list.shape[0]):
-                curr_traj = self.trajectory_rollout(vel_list[vel][None, :], rot_list[rot][None, :], node_i, point_s)
-                curr_traj[:, 0:2] = self.point_to_cell(curr_traj[:, 0:2].T).T #turn to map
-                curr_traj = curr_traj.squeeze().astype(int)
-                ind_list[i] = np.array([vel, rot])
-                if self.is_collide(curr_traj[:, 0:2].T):
-                    print("collision true")
-                    traj_opts[i, :, :] = np.inf * np.ones((self.num_substeps, 3))
-                    i += 1
-                    continue
-                traj_opts[i, :, :] = self.trajectory_rollout(vel_list[vel][None, :], rot_list[rot][None, :], node_i, point_s)
-                i += 1
+        # ind_list = np.zeros((rot_list.shape[0]**2, 2))
+        # for rot in range(rot_list.shape[0]):
+        #     for vel in range(vel_list.shape[0]):
+        #         print('!!!')
+        #         print(vel_list[vel], rot_list[rot])
+        #         curr_traj = self.trajectory_rollout(vel_list[vel][None, :], rot_list[rot][None, :], node_i, point_s)
+        #         curr_traj[:, 0:2] = self.point_to_cell(curr_traj[:, 0:2].T).T #turn to map
+        #         curr_traj = curr_traj.squeeze().astype(int)
+        #         ind_list[i] = np.array([vel, rot])
+        #         print(f'curr_traj: {curr_traj} ')
+        #         if self.is_collide(curr_traj[:, 0:2].T):
+        #             print("collision true")
+        #             traj_opts[i, :, :] = np.inf * np.ones((self.num_substeps, 3))
+        #             i += 1
+        #             continue
+        #         traj_opts[i, :, :] = self.trajectory_rollout(vel_list[vel][None, :], rot_list[rot][None, :], node_i, point_s)
+        #         i += 1
 
-        best_dist = np.inf
-        for i in range(traj_opts.shape[0]):
-            # dist = np.linalg.norm(traj_opts[i,-1, :] - point_s)
-            dist = np.sqrt(np.square(np.sum(traj_opts[i,-1, :] - point_s)))
-            if dist < best_dist:
-                ind = ind_list[i]
-                vel_best = vel_list[int(ind[0])]
-                rot_vel_best = rot_list[int(ind[1])]
+        # best_dist = np.inf
+        # for i in range(traj_opts.shape[0]):
+        #     # dist = np.linalg.norm(traj_opts[i,-1, :] - point_s)
+        #     dist = np.sqrt(np.square(np.sum(traj_opts[i,-1, :] - point_s)))
+        #     if dist < best_dist:
+        #         ind = ind_list[i]
+        #         vel_best = vel_list[int(ind[0])]
+        #         rot_vel_best = rot_list[int(ind[1])]
 
-        return vel_best, rot_vel_best
+        # return vel_best, rot_vel_best
 
-    def is_collide(self, points):
+    def is_collide(self, points : np.ndarray) -> bool:
         # check for multiple points if collides with circle 
         # RECIEVE MAP POINTS
-        for j in range(points.shape[0]):
-            if (points[j][0]<0 or points[j][0] > self.map_shape[1] or points[j][1]<0 or points[j][1]> self.map_shape[0]): # [row, col]
-                print(points[j])
-                print(self.map_shape)
-                print("COLLISION OUT OF BOUNDS")
-                return 1
+        assert points.shape[0] == 2
+        # print(points)
+        # print(self.map_shape)
+        # print(np.amax(points, axis=1))
+        # print(np.amin(points, axis=1))
+        # a = np.logical_or(np.amax(points, axis=1) > self.map_shape, np.amin(points, axis=1) < 0)
+        # print(a)
+        # print(a.any())
+
+        # exit()
+        
+        if np.logical_or(np.amax(points, axis=1) > self.map_shape, np.amin(points, axis=1) < 0).any():
+            print("COLLISION OUT OF BOUNDS")
+            return True
             
         disks = self.points_to_robot_circle(points.T)
 
@@ -284,14 +325,16 @@ class PathPlanner:
             else:
                 return 0
     
-    def trajectory_rollout(self, vel, rot_vel, curr_pose, goal):
+    def trajectory_rollout(self, vel : float, rot_vel : float, curr_pose) -> np.ndarray:
         # Given your chosen velocities determine the trajectory of the robot for your given timestep
         # The returned trajectory should be a series of points to check for collisions
-        # print("TO DO: Implement a way to rollout the controls chosen")
         #RECIEVE WORLD POINTS
-        traj = np.zeros((3, self.num_substeps))
-        paths = []
-        n = rot_vel.shape[0]
+
+        assert type(vel) == type(rot_vel) and type(vel) in [np.float64, float]
+
+        # traj = np.zeros((3, self.num_substeps))
+        # paths = []
+        # n = rot_vel.shape[0]
 
         time = self.timestep/self.num_substeps * np.ones((3,1))
         theta = curr_pose[2][0]
@@ -303,7 +346,7 @@ class PathPlanner:
         rot_mat = np.array([[np.cos(theta), 0],
                                 [np.sin(theta), 0],
                                 [0, 1]])
-        vel_vec = np.array([vel, rot_vel]).squeeze(-1)
+        vel_vec = np.array([vel, rot_vel])
         q_dot = np.matmul(rot_mat, vel_vec) #+ curr_pose
         waypoint = np.multiply(time, q_dot) + curr_pose
         traj_opts[0:1, :] = waypoint.T
@@ -392,7 +435,7 @@ class PathPlanner:
         #point is a 2 by 1 point
 
         # the following code assumes that point_f is outside of the robot's maximum turn circle
-        point_f.reshape(2)
+        # point_f.reshape(2)
         assert point_f.shape == (2,)
         assert self.num_substeps >= 3
 
@@ -680,10 +723,10 @@ class PathPlanner:
 
 def main():
     #Set map information
-    map_filename = "willowgarageworld_05res.png"
-    # map_filename = "myhal.png"
-    # map_setings_filename = "myhal.yaml"
-    map_setings_filename = "willowgarageworld_05res.yaml"
+    # map_filename = "willowgarageworld_05res.png"
+    map_filename = "myhal.png"
+    map_setings_filename = "myhal.yaml"
+    # map_setings_filename = "willowgarageworld_05res.yaml"
 
     #robot information
     goal_point = np.array([[10], [-20]]) #m WORLD POINTS
