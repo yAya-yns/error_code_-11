@@ -65,7 +65,7 @@ class PathPlanner:
 
         #Planning storage
         node = np.zeros((3,1))
-        node[0:2] = self.cell_to_point(node[0:2]) 
+        # node[0:2] = self.cell_to_point(node[0:2]) 
         self.nodes = [Node(node, -1, 0)]
         self.node_pts = np.zeros((3,1))[:2][None]
 
@@ -87,7 +87,7 @@ class PathPlanner:
         # print("TO DO: Sample point to drive towards")
         #maybe sample occ map first?
         #TODO this idk what it wants. not sure if this is enough. Hint is throwing me off
-
+        # IN WORLD POINTS
         rand = np.random.rand(3, 1)
         rand[0] = rand[0] * (self.bounds[0, 1] - self.bounds[0, 0])  + self.bounds[0, 0]
         rand[1] = rand[1] * (self.bounds[1, 1] - self.bounds[1, 0])  + self.bounds[1, 0] 
@@ -116,8 +116,10 @@ class PathPlanner:
         # print("TO DO: Implement a method to get the closest node to a sampled point")
         closest = 1000000
         ind = False
+        print("point in closest: ", point)
         for i in range(len(self.nodes)):
-            dist = np.sqrt((self.nodes[i].point[0]- point[0])**2 + (self.nodes[i].point[1]- point[1])**2)
+            print("self.nodes[i]: ", self.nodes[i].point)
+            dist = np.sqrt(np.square(np.sum(self.nodes[i].point.squeeze() - point.squeeze())))
             if dist < closest:
                 closest = dist
                 ind = i
@@ -131,7 +133,10 @@ class PathPlanner:
         #point_s is the sampled point vector [x; y]
         # recieve map points
 
-        # print("TO DO: Implment a method to simulate a trajectory given a sampled point")
+        # print("TO DO: Implment a method to simulate a trajectory given a sampled point") uhhh 
+        print("node_i:", node_i)
+        print("point_s:", point_s)
+        input()
         vel, rot_vel = self.robot_controller(node_i, point_s)
         vel = vel[None, :]
         rot_vel = rot_vel[None, :]
@@ -145,7 +150,9 @@ class PathPlanner:
         #This controller determines the velocities that will nominally move the robot from node i to node s
         #Max velocities should be enforced
         # print("TO DO: Implement a control scheme to drive you towards the sampled point")
-        # recieve map points
+        
+        # recieve WORLD points
+
 
         # print("node_i: ", node_i)
         # print("to point_s: ", point_s)
@@ -204,17 +211,8 @@ class PathPlanner:
                 if self.is_collide(curr_traj[:, 0:2].T):
                     print("collision true")
                     traj_opts[i, :, :] = np.inf * np.ones((self.num_substeps, 3))
-
                     i += 1
                     continue
-                for j in range(0, self.num_substeps):
-                    if (curr_traj[j][0]<0 or curr_traj[j][0] > self.map_shape[0] or curr_traj[j][1]<0 or curr_traj[j][1]> self.map_shape[1]):
-                        collision = True
-                        print(curr_traj[j])
-                        print(self.map_shape)
-
-                        print("COLLISION OUT OF BOUNDS")
-                        break
                 traj_opts[i, :, :] = self.trajectory_rollout(vel_list[vel][None, :], rot_list[rot][None, :], node_i, point_s)
                 i += 1
 
@@ -244,6 +242,7 @@ class PathPlanner:
 
     def is_collide(self, points):
         # check for multiple points if collides with circle 
+        # RECIEVE MAP POINTS
         for j in range(points.shape[0]):
             if (points[j][0]<0 or points[j][0] > self.map_shape[0] or points[j][1]<0 or points[j][1]> self.map_shape[1]):
                 print(points[j])
@@ -258,6 +257,7 @@ class PathPlanner:
         # print(self.bounds[0, 1])
         # print(self.bounds[1, 1])
         # print(self.occupancy_map[1][1])
+        # RECIEVE MAP POINTS
         for disk in disks:
             if np.sum(self.occupancy_map[disk[0].astype(int), disk[1].astype(int)])<self.map_settings_dict['occupied_thresh']:
                 print(disk, points, self.occupancy_map[disk[0].astype(int), disk[1].astype(int)])
@@ -269,6 +269,7 @@ class PathPlanner:
         # Given your chosen velocities determine the trajectory of the robot for your given timestep
         # The returned trajectory should be a series of points to check for collisions
         # print("TO DO: Implement a way to rollout the controls chosen")
+        #RECIEVE WORLD POINTS
         traj = np.zeros((3, self.num_substeps))
         paths = []
         n = rot_vel.shape[0]
@@ -297,11 +298,10 @@ class PathPlanner:
             waypoint = np.multiply(time, q_dot)
             traj_opts[k:k+1, :] = traj_opts[k-1:k, :] + waypoint.T
 
-        print("traj before: ", traj_opts)
-        traj_opts[:, 0:2] = self.point_to_cell(traj_opts[:, 0:2].T).T
+        print("traj world: ", traj_opts)
+        traj_opts[:, 0:2] = self.point_to_cell(traj_opts[:, 0:2].T).T #turn to map
         
-        print("traj after: ", traj_opts)
-        return abs(traj_opts.squeeze()) #(N, self.num_substeps, 3) #MAP POINTS 
+        return traj_opts.squeeze().astype(int) #(N, self.num_substeps, 3) #MAP POINTS 
 
     
     def point_to_cell(self, point):
@@ -312,7 +312,12 @@ class PathPlanner:
         
         map_origin = self.map_settings_dict['origin'][0:2]
         res = self.map_settings_dict['resolution']
-        occ_points = point + np.tile(map_origin, (point.shape[1], 1)).T
+        occ_points = point - np.tile(map_origin, (point.shape[1], 1)).T
+        # print(point)
+        # print(np.tile(map_origin, (point.shape[1], 1)).T)
+        # print(occ_points/res)
+        # print("res: ", occ_points) 
+        # input()
         return np.round(occ_points/res).astype(int)
 
     def cell_to_point(self, point):
@@ -323,13 +328,19 @@ class PathPlanner:
 
         map_origin = self.map_settings_dict['origin'][0:2]
         res = self.map_settings_dict['resolution']
-        world_points = point*res - np.tile(map_origin, (point.shape[1], 1)).T
+        world_points = point*res + np.tile(map_origin, (point.shape[1], 1)).T
+        # print(point)
+        # print(point*res)
+        # print(np.tile(map_origin, (point.shape[1], 1)).T)
+        # print("res: ", world_points), 
+        # input()
         return world_points
 
     def points_to_robot_circle(self, points):
         #Convert a series of [x,y] points to robot map footprints for collision detection
         #Hint: The disk function is included to help you with this function
         # print("TO DO: Implement a method to get the pixel locations of the robot path")
+        #RECIEVE MAP POINTS
         map_circles = []
         points = points.squeeze()
         for i in range(len(points)):
@@ -425,10 +436,13 @@ class PathPlanner:
         #This function performs RRT on the given map and robot
         #You do not need to demonstrate this function to the TAs, but it is left in for you to check your work
         path_finding = True
-        while True: #Most likely need more iterations than this to complete the map!
+        check_final = 10
+        check_ind = 0
+        sim_time = 3
+        while path_finding: #Most likely need more iterations than this to complete the map!
             #Sample map space
             input() 
-            point = self.sample_map_space()
+            point = self.sample_map_space() #world
 
             #Get the closest point
             closest_node_id = self.closest_node(point)
@@ -436,13 +450,16 @@ class PathPlanner:
             print("closest node: ", self.nodes[closest_node_id].point)
 
             #Simulate driving the robot towards the closest point
-            trajectory_o = self.simulate_trajectory(self.nodes[closest_node_id].point, point) # map points
+            trajectory_o = self.simulate_trajectory(self.nodes[closest_node_id].point, point) # map points, input world
 
+            #sim multiple timesteps
+            for i in range(sim_time):
+                trajectory_o = self.simulate_trajectory(self.nodes[closest_node_id].point, point)
             #Check for collisions
             # print("TO DO: Check for collisions and add safe points to list of nodes.")
             # traj = np.array((3, self.num_substeps)) of points
             # check collision between two lines?
-            traj = trajectory_o.astype(int) # occupancy grid points
+            traj = trajectory_o # occupancy grid points
             print("traj: ",traj)
             print('finished getting trajectory')
             # self.bounds[0, 0] = self.map_settings_dict["origin"][0]
@@ -450,20 +467,6 @@ class PathPlanner:
             # self.bounds[0, 1] = self.map_settings_dict["origin"][0] + self.map_shape[1] * self.map_settings_dict["resolution"]
             # self.bounds[1, 1] = self.map_settings_dict["origin"][1] + self.map_shape[0] * self.map_settings_dict["resolution"]
             collision = False
-
-            # for j in range(0, self.num_substeps):
-            #     # if (traj[j][0]<self.bounds[0, 0] or traj[j][0] > self.bounds[0, 1] or traj[j][1]<self.bounds[1, 0] or traj[j][1]> self.bounds[1, 1]):
-            #     if (traj[j][0]<0 or traj[j][0] > self.map_shape[0] or traj[j][1]<0 or traj[j][1]> self.map_shape[1]):
-            #         collision = True
-            #         print(traj[j])
-            #         print(self.map_shape)
-
-            #         print("COLLISION OUT OF BOUNDS")
-            #         break
-
-            # if collision:
-            #     continue
-            
             if self.is_collide(traj[:, 0:2].T):
                 collision = True
                 print("collision true")
@@ -471,17 +474,61 @@ class PathPlanner:
                     
             if collision == False:
                 dist = np.sqrt((self.nodes[closest_node_id].point[0]- point[0])**2 + (self.nodes[closest_node_id].point[1] - point[1])**2)
-                self.nodes.append(Node(point, closest_node_id, dist))
+                
+
                 print("adding node: ", point)
                 print("dist to goal: ", np.linalg.norm(traj[-1, :] - self.goal_point))
-            #Check if goal has been reached
-            # print("TO DO: Check if at goal point.")
-            print("dist to goal: ", np.linalg.norm(traj[-1, :] - self.goal_point))
-            print("curr nodes scatter:", [i.point for i in self.nodes])
-            if np.linalg.norm(traj[-1, :] - self.goal_point) < self.stopping_dist: # reached goal
-                self.goal_nodes[len(self.nodes) - 1] = self.nodes[-1]
-                self.best_goal_node_id = len(self.nodes) - 1
-                break
+            
+                #Add closest point to path:
+                world_point = traj[-1]
+                world_point[0:2] = self.cell_to_point(world_point[:2].T[None, :].T).T.squeeze()
+                new_node = Node(world_point[None, :], closest_node_id, dist) 
+                print("new_node.point ", new_node.point)
+                input()
+
+                self.window.add_point(new_node.point[0][:2])
+                self.window.add_line(new_node.point[0][:2], self.nodes[closest_node_id].point.T[0][0:2])
+
+                self.nodes.append(new_node)
+                self.nodes[closest_node_id].children_ids += [len(self.nodes)]
+
+            # ____________start trying to connect the goal:
+            if check_final == check_ind:
+                check_ind = 0
+                point = np.zeros((3,1))
+                point[:2] = self.goal_point 
+                closest_node_id = self.closest_node(point)
+                traj = self.simulate_trajectory(self.nodes[closest_node_id].point, point)
+
+                dist = np.sqrt(np.sum(np.square(traj[-1][:2] - point[:2])))
+                if dist < self.stopping_dist:
+                    # if new point is within target radius:
+                    path_finding = False
+                    break
+                    
+                world_point = traj[-1]
+                world_point[0:2] = self.cell_to_point(world_point[:2].T[None, :].T).T.squeeze()
+                new_node = Node(world_point[None, :], closest_node_id, dist) 
+                print("new_node.point ", new_node.point)
+                input()
+                
+                self.window.add_point(new_node.point[0][:2])
+                self.window.add_line(new_node.point[0][:2], self.nodes[closest_node_id].point.T[0][0:2])
+
+                self.nodes.append(new_node)
+                self.nodes[closest_node_id].children_ids += [len(self.nodes)]
+                
+            
+            # #Check if goal has been reached
+            # # print("TO DO: Check if at goal point.")
+            # print("dist to goal: ", np.linalg.norm(traj[-1, :] - self.goal_point))
+            # print("curr nodes scatter:", [i.point for i in self.nodes])
+            # if np.linalg.norm(traj[-1, :] - self.goal_point) < self.stopping_dist: # reached goal
+            #     self.goal_nodes[len(self.nodes) - 1] = self.nodes[-1]
+            #     self.best_goal_node_id = len(self.nodes) - 1
+            #     path_finding = False
+            #     break
+            check_ind += 1
         
         
         points = [i.point for i in self.nodes]
@@ -527,11 +574,11 @@ class PathPlanner:
 def main():
     #Set map information
     # map_filename = "willowgarageworld_05res.png"
-    map_filename = "simple_map.png"
-    map_setings_filename = "willowgarageworld_05res.yaml"
+    map_filename = "myhal.png"
+    map_setings_filename = "myhal.yaml"
 
     #robot information
-    goal_point = np.array([[10], [10]]) #m
+    goal_point = np.array([[10], [10]]) #m WORLD POINTS
     stopping_dist = 0.5 #m
 
     #RRT precursor
