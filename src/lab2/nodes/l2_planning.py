@@ -38,7 +38,7 @@ class Node:
 #Path Planner 
 class PathPlanner:
     #A path planner capable of perfomring RRT and RRT*
-    def __init__(self, map_filename, map_setings_filename, goal_point, stopping_dist):
+    def __init__(self, map_filename, map_setings_filename, goal_point, stopping_dist, display_window=True):
         #Get map information
         self.occupancy_map = load_map(map_filename)
         self.map_shape = self.occupancy_map.shape
@@ -82,8 +82,9 @@ class PathPlanner:
         self.epsilon = 2.5
         
         #Pygame window for visualization
-        self.window = pygame_utils.PygameWindow(
-            "Path Planner", (1000, 1000), self.occupancy_map.shape, self.map_settings_dict, self.goal_point, self.stopping_dist)
+        if display_window:
+            self.window = pygame_utils.PygameWindow(
+                "Path Planner", (1000, 1000), self.occupancy_map.shape, self.map_settings_dict, self.goal_point, self.stopping_dist)
         return
 
     #Functions required for RRT
@@ -448,13 +449,36 @@ class PathPlanner:
         for i in range(len(points) - 1):
             point1 = points[i, 0 : 2]
             point2 = points[i + 1, 0 : 2]
-            angle_difference = points[i, 3] - points[i + 1, 3]
+            angle_difference = points[i, 2] - points[i + 1, 2]
             total_cost += np.linalg.norm(point1 - point2) + rot_cost_coefficient * angle_difference
         return total_cost
     
     def update_children(self, node_id):
         #Given a node_id with a changed cost, update all connected nodes with the new cost
-        print("TO DO: Update the costs of connected nodes after rewiring.")
+        # print("TO DO: Update the costs of connected nodes after rewiring.")
+
+        # based on the obeservation to the codebase: I assume self.nodes[node_id] refers to a specific node
+        # which means, their node_id is just the index (order added to the self.nodes)
+
+        '''
+        Temp doc string for easy referencing
+        class Node:
+            def __init__(self, point, parent_id, cost):
+                self.point = point # A 3 by 1 vector [x, y, theta]
+                self.parent_id = parent_id # The parent node id that leads to this node (There should only every be one parent in RRT)
+                self.cost = cost # The cost to come to this node
+                self.children_ids = [] # The children node ids of this node
+        return
+        '''
+        if len(self.nodes[node_id].children_ids) == 0:  # reached to a leaf of a tree 
+            return
+        
+        for children_id in self.nodes[node_id].children_ids:
+            trajectory_from_cur_to_child = np.hstack([self.nodes[node_id].point, self.nodes[children_id].point])
+            assert trajectory_from_cur_to_child.shape == (3,2)
+            cost_between_cur_to_child = self.cost_to_come(trajectory_from_cur_to_child)
+            self.nodes[children_id].cost = self.nodes[node_id].cost + cost_between_cur_to_child
+            self.update_children(children_id)
         return
 
     #Planner Functions
