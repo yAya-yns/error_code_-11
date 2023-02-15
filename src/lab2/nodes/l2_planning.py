@@ -373,6 +373,7 @@ class PathPlanner:
         for i in range(len(points)):
             world_circles_r, world_circles_c = disk((points[i][0], points[i][1]), self.robot_radius/self.map_settings_dict['resolution'])
             world_circles = np.array([world_circles_r, world_circles_c])
+            valid_max = np.where(world_circles)
             map_circles.append(world_circles)
             # map_circles.append(self.point_to_cell(world_circles))
         return map_circles
@@ -480,6 +481,8 @@ class PathPlanner:
         check_ind = 0
         c_goal_ind = 0
         c_goal_final = 10
+        # self.window.add_point(np.array([-10, -10]))
+        # input()
         while path_finding: #Most likely need more iterations than this to complete the map!
             #Sample map space
             point = self.sample_map_space() #world
@@ -546,9 +549,9 @@ class PathPlanner:
                 print("new_node.point ", new_node.point)
                 
                 self.window.add_point(new_node.point.T[0][:2])
-                draw_pt = new_node.point.T[0][:2]
-                draw_pt[1] = -draw_pt[1]
-                self.window.add_line(draw_pt, self.nodes[closest_node_id].point.T[0][:2])
+                # draw_pt = new_node.point.T[0][:2]
+                # draw_pt[1] = -draw_pt[1]
+                # self.window.add_line(draw_pt, self.nodes[closest_node_id].point.T[0][:2])
 
                 self.nodes.append(new_node)
                 self.nodes[closest_node_id].children_ids += [len(self.nodes)]
