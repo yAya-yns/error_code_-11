@@ -9,6 +9,7 @@ import matplotlib.image as mpimg
 from skimage.draw import disk
 from scipy.linalg import block_diag
 import scipy
+import random 
 
 
 def load_map(filename):
@@ -88,10 +89,17 @@ class PathPlanner:
         #maybe sample occ map first?
         #TODO this idk what it wants. not sure if this is enough. Hint is throwing me off
         # IN WORLD POINTS
-        rand = np.random.rand(3, 1)
-        rand[0] = rand[0] * (self.bounds[0, 1] - self.bounds[0, 0])  + self.bounds[0, 0]
-        rand[1] = rand[1] * (self.bounds[1, 1] - self.bounds[1, 0])  + self.bounds[1, 0] 
-        rand[2] = 0 
+
+        # find random node in existing nodes:
+        node_ind = random.randrange(len(self.nodes))
+        map_circles_r, map_circles_c = disk((self.nodes[node_ind].point.squeeze()[0], self.nodes[node_ind].point.squeeze()[1]), 100) # radius of 5m 100 cells
+        
+        # rand = np.random.rand(3, 1)
+        # rand[0] = rand[0] * (self.bounds[0, 1] - self.bounds[0, 0])  + self.bounds[0, 0]
+        # rand[1] = rand[1] * (self.bounds[1, 1] - self.bounds[1, 0])  + self.bounds[1, 0] 
+        # rand[2] = 0 
+
+        rand = np.array([random.choice(map_circles_r), random.choice(map_circles_c), 0])
 
         return rand
     
@@ -138,12 +146,14 @@ class PathPlanner:
         print("point_s:", point_s)
         input()
         vel, rot_vel = self.robot_controller(node_i, point_s)
-        vel = vel[None, :]
-        rot_vel = rot_vel[None, :]
         print("vel: ", vel)
         print("rot_vel: ", rot_vel)
 
-        robot_traj = self.trajectory_rollout(vel, rot_vel, node_i, point_s)
+        # do enough timesteps to get there I guess?
+        # calc how much time needed for generated vels to get to point_s
+
+
+        robot_traj = self.trajectory_rollout(vel[None, :], rot_vel[None, :], node_i, point_s)
         return robot_traj
     
     def robot_controller(self, node_i, point_s):
@@ -569,12 +579,13 @@ class PathPlanner:
 
 def main():
     #Set map information
-    # map_filename = "willowgarageworld_05res.png"
-    map_filename = "myhal.png"
-    map_setings_filename = "myhal.yaml"
+    map_filename = "willowgarageworld_05res.png"
+    # map_filename = "myhal.png"
+    # map_setings_filename = "myhal.yaml"
+    map_setings_filename = "willowgarageworld_05res.yaml"
 
     #robot information
-    goal_point = np.array([[10], [10]]) #m WORLD POINTS
+    goal_point = np.array([[10], [0]]) #m WORLD POINTS
     stopping_dist = 0.5 #m
 
     #RRT precursor
