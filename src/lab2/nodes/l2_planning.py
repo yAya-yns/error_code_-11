@@ -438,7 +438,6 @@ class PathPlanner:
         path_finding = True
         check_final = 10
         check_ind = 0
-        sim_time = 3
         while path_finding: #Most likely need more iterations than this to complete the map!
             #Sample map space
             input() 
@@ -452,9 +451,6 @@ class PathPlanner:
             #Simulate driving the robot towards the closest point
             trajectory_o = self.simulate_trajectory(self.nodes[closest_node_id].point, point) # map points, input world
 
-            #sim multiple timesteps
-            for i in range(sim_time):
-                trajectory_o = self.simulate_trajectory(self.nodes[closest_node_id].point, point)
             #Check for collisions
             # print("TO DO: Check for collisions and add safe points to list of nodes.")
             # traj = np.array((3, self.num_substeps)) of points
