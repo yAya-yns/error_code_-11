@@ -27,10 +27,10 @@ def main():
     # print(path_planner.nodes[2].cost)
     # print(path_planner.nodes[3].cost)
 
-    assert 10 == path_planner.nodes[0].cost
-    assert (10+np.sqrt(2)) == path_planner.nodes[1].cost
-    assert 11 == path_planner.nodes[2].cost
-    assert 11 == path_planner.nodes[3].cost
+    np.testing.assert_almost_equal(10, path_planner.nodes[0].cost)
+    np.testing.assert_almost_equal(10 + np.sqrt(2), path_planner.nodes[1].cost)
+    np.testing.assert_almost_equal(11, path_planner.nodes[2].cost)
+    np.testing.assert_almost_equal(11, path_planner.nodes[3].cost)
     print("passed all tests")
     return True
 

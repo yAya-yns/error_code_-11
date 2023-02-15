@@ -460,16 +460,6 @@ class PathPlanner:
         # based on the obeservation to the codebase: I assume self.nodes[node_id] refers to a specific node
         # which means, their node_id is just the index (order added to the self.nodes)
 
-        '''
-        Temp doc string for easy referencing
-        class Node:
-            def __init__(self, point, parent_id, cost):
-                self.point = point # A 3 by 1 vector [x, y, theta]
-                self.parent_id = parent_id # The parent node id that leads to this node (There should only every be one parent in RRT)
-                self.cost = cost # The cost to come to this node
-                self.children_ids = [] # The children node ids of this node
-        return
-        '''
         if len(self.nodes[node_id].children_ids) == 0:  # reached to a leaf of a tree 
             return
         
