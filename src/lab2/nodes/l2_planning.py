@@ -61,6 +61,7 @@ class PathPlanner:
         #Goal Parameters
         self.goal_point = goal_point #m
         self.stopping_dist = stopping_dist #m
+        self.sim_stopping_dist = stopping_dist #m
         print(f'goal_point: {goal_point}')
         print(f'stopping_dist: {stopping_dist}')
 
@@ -78,6 +79,8 @@ class PathPlanner:
         
         self.node_pts = np.zeros((3,1))[:2][None]
         # print(self.node_pts)
+
+        self.trajectories = [] #list of all added trajectories we want to plot
 
         # self.fig = plt.figure()
         # self.ax = self.fig.add_subplot()
@@ -189,7 +192,7 @@ class PathPlanner:
         # do enough timesteps to get there I guess?
         # calc how much time needed for generated vels to get to point_s
         
-        robot_traj = self.trajectory_rollout(vel, rot_vel, node_i)
+        robot_traj = self.trajectory_rollout(vel, rot_vel, node_i, point_s)
         return robot_traj, vel, rot_vel
     
     def robot_controller(self, node_i : np.ndarray, point_s : np.ndarray):
@@ -338,7 +341,7 @@ class PathPlanner:
             else:
                 return 0
     
-    def trajectory_rollout(self, vel : float, rot_vel : float, curr_pose : np.ndarray) -> np.ndarray:
+    def trajectory_rollout(self, vel : float, rot_vel : float, curr_pose : np.ndarray, goal_pose : np.ndarray) -> np.ndarray:
         # Given your chosen velocities determine the trajectory of the robot for your gtimestep
         # The returned trajectory should be a series of points to check for collisions
         #RECIEVE WORLD POINTS
@@ -376,6 +379,12 @@ class PathPlanner:
             traj[2, i] = theta - i * delta_angle * on_right
             pos = (circle_centre + radius * np.array([np.cos(ang), np.sin(ang)]))
             traj[0:2, i] = pos
+            dist_to_goal_pose = np.sqrt(np.sum(np.square(pos - goal_pose[:2])))
+            if dist_to_goal_pose < self.sim_stopping_dist and i < (self.num_substeps - 1):
+                traj[2, i+1] = theta - (i+1) * delta_angle * on_right
+                traj[0:2, i+1] = goal_pose[:2]
+                traj = traj[:, :i+2]
+                break
         return traj
 
         # time = self.timestep/self.num_substeps * np.ones((3,1))
@@ -578,13 +587,13 @@ class PathPlanner:
             print("point: ", point)
             print("closest node: ", self.nodes[closest_node_id].point)
 
-            #Simulate driving the robot towards the closest point
+            #Simulate driving the robot towards the sampled point
             curr_node = self.nodes[closest_node_id].point
             traj_cum, vel, rot_vel = self.simulate_trajectory(curr_node.reshape(3), point[0:2])
             thresh = 2
             for i in range(10):
                 # until reaches point or there is collision
-                trajectory_o = self.trajectory_rollout(vel, rot_vel, curr_node.reshape(3)) # world points, input world
+                trajectory_o = self.trajectory_rollout(vel, rot_vel, curr_node.reshape(3), point[0:2]) # world points, input world
                 traj = trajectory_o.copy()
                 traj[:, 0:2] = self.point_to_cell(traj[:, 0:2].T).T #turn to map
                 traj = traj.squeeze().astype(int)
@@ -691,6 +700,33 @@ class PathPlanner:
             current_node_id = self.nodes[current_node_id].parent_id
         path.reverse()
         return path
+    
+    def plot_nodes(self):
+        # Set the figure size
+        start_node = np.zeros((1, 2))
+        # plt.rcParams["figure.figsize"] = [self.map_shape[0], self.map_shape[1]]
+        # plt.rcParams["figure.autolayout"] = True  
+        plt.imshow(self.occupancy_map)
+
+        # change each node from world to map points
+        for node in self.nodes:
+            # point = [[],[],[]]
+            map_point = self.point_to_cell(node.point[:2])
+            plt.plot([map_point[0]], [map_point[1]], 'ro')
+
+        # plot goal in green
+        map_goal = self.point_to_cell(self.goal_point)
+        plt.plot([map_goal[0]], [map_goal[1]], 'go')
+
+        # plot start in blue
+        map_start = self.point_to_cell(start_node.T)
+        plt.plot([map_start[0]], [map_start[1]], 'bo')
+
+        # plot each trajectory
+        for traj in self.trajectories:
+            plt.plot(traj[0, :], traj[1, :], color='red', alpha=0.3)
+        plt.show()
+        return 0
 
 def main():
     #Set map information
