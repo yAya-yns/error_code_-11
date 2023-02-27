@@ -6,6 +6,7 @@ import pygame
 import time
 import pygame_utils
 import matplotlib.image as mpimg
+import matplotlib.pyplot as plt
 from skimage.draw import disk
 from scipy.linalg import block_diag
 import scipy
@@ -50,6 +51,7 @@ class PathPlanner:
         self.bounds[1, 0] = self.map_settings_dict["origin"][1]
         self.bounds[0, 1] = self.map_settings_dict["origin"][0] + self.map_shape[1] * self.map_settings_dict["resolution"]
         self.bounds[1, 1] = self.map_settings_dict["origin"][1] + self.map_shape[0] * self.map_settings_dict["resolution"]
+        print(f'self.bounds: \n{self.bounds}')
 
         #Robot information
         self.robot_radius = 0.22 #m
@@ -59,6 +61,8 @@ class PathPlanner:
         #Goal Parameters
         self.goal_point = goal_point #m
         self.stopping_dist = stopping_dist #m
+        print(f'goal_point: {goal_point}')
+        print(f'stopping_dist: {stopping_dist}')
 
         #Trajectory Simulation Parameters
         self.timestep = 2.0 #s used to be 1.0
@@ -73,18 +77,27 @@ class PathPlanner:
         self.final_nodes = [Node(self.goal_point, -1, 0)]
         
         self.node_pts = np.zeros((3,1))[:2][None]
+        # print(self.node_pts)
 
-        #RRT* Specific Parameters
-        self.lebesgue_free = np.sum(self.occupancy_map) * self.map_settings_dict["resolution"] **2
-        self.zeta_d = np.pi
-        self.gamma_RRT_star = 2 * (1 + 1/2) ** (1/2) * (self.lebesgue_free / self.zeta_d) ** (1/2)
-        self.gamma_RRT = self.gamma_RRT_star + .1
-        self.epsilon = 2.5
+        # self.fig = plt.figure()
+        # self.ax = self.fig.add_subplot()
+        # self.ax.axis('equal')
+        # print(self.occupancy_map.shape)
+        # self.ax.spy(1 - self.occupancy_map)
+        # plt.show()
+        # exit()
+
+        # #RRT* Specific Parameters
+        # self.lebesgue_free = np.sum(self.occupancy_map) * self.map_settings_dict["resolution"] **2
+        # self.zeta_d = np.pi
+        # self.gamma_RRT_star = 2 * (1 + 1/2) ** (1/2) * (self.lebesgue_free / self.zeta_d) ** (1/2)
+        # self.gamma_RRT = self.gamma_RRT_star + .1
+        # self.epsilon = 2.5
         
         #Pygame window for visualization
-        if display_window:
-            self.window = pygame_utils.PygameWindow(
-                "Path Planner", (500, 500), self.occupancy_map.shape, self.map_settings_dict, self.goal_point, self.stopping_dist)
+        # if display_window:
+        #     self.window = pygame_utils.PygameWindow(
+        #         "Path Planner", (500, 500), self.occupancy_map.shape, self.map_settings_dict, self.goal_point, self.stopping_dist)
         return
 
     #Functions required for RRT
@@ -158,24 +171,24 @@ class PathPlanner:
 
         return ind
     
-    def simulate_trajectory(self, node_i, point_s):
+    def simulate_trajectory(self, node_i : np.ndarray, point_s : np.ndarray):
         #Simulates the non-holonomic motion of the robot.
         #This function drives the robot from node_i towards point_s. This function does has many solutions!
         #node_i is a 3 by 1 vector [x;y;theta] this can be used to construct the SE(2) matrix T_{OI} in course notation
         #point_s is the sampled point vector [x; y]
         # recieve map points
-
+        assert node_i.shape == (3,), node_i.shape
+        assert point_s.shape == (2,), point_s.shape
         # print("TO DO: Implment a method to simulate a trajectory given a sampled point") uhhh 
-        print("node_i:", node_i)
-        print("point_s:", point_s)
-        vel, rot_vel = self.robot_controller(node_i.reshape(-1), point_s[0:2])
-        print("vel: ", vel)
-        print("rot_vel: ", rot_vel)
+        # print("node_i:", node_i)
+        # print("point_s:", point_s)
+        vel, rot_vel = self.robot_controller(node_i, point_s)
+        # print("vel: ", vel)
+        # print("rot_vel: ", rot_vel)
 
         # do enough timesteps to get there I guess?
         # calc how much time needed for generated vels to get to point_s
-
-
+        
         robot_traj = self.trajectory_rollout(vel, rot_vel, node_i)
         return robot_traj, vel, rot_vel
     
@@ -567,11 +580,11 @@ class PathPlanner:
 
             #Simulate driving the robot towards the closest point
             curr_node = self.nodes[closest_node_id].point
-            traj_cum, vel, rot_vel = self.simulate_trajectory(curr_node, point)
+            traj_cum, vel, rot_vel = self.simulate_trajectory(curr_node.reshape(3), point[0:2])
             thresh = 2
             for i in range(10):
                 # until reaches point or there is collision
-                trajectory_o = self.trajectory_rollout(vel[None, :], rot_vel[None, :], curr_node, point) # world points, input world
+                trajectory_o = self.trajectory_rollout(vel, rot_vel, curr_node.reshape(3)) # world points, input world
                 traj = trajectory_o.copy()
                 traj[:, 0:2] = self.point_to_cell(traj[:, 0:2].T).T #turn to map
                 traj = traj.squeeze().astype(int)
@@ -600,12 +613,6 @@ class PathPlanner:
             # check collision between two lines?
             # traj = trajectory_o # occupancy grid points
             print('finished getting trajectory')
-
-            # collision = False
-            # if self.is_collide(traj[:, 0:2].T):
-            #     collision = True
-            #     print("collision true")
-            #     continue
                     
             if collision == False:
                 # dist = np.sqrt((self.nodes[closest_node_id].point[0]- point[0])**2 + (self.nodes[closest_node_id].point[1] - point[1])**2)
@@ -637,73 +644,6 @@ class PathPlanner:
                     points = [i.point for i in self.nodes]
                     print("final points: ", points)
                     break
-                
-
-            # # ____________start trying to connect the goal:
-            # if c_goal_ind == c_goal_final:
-            #     print("check final ")
-            #     c_goal_ind = 0
-                
-            #     point = self.sample_map_space(goal=True) #world
-
-            #     #Get the closest point
-            #     goal = self.goal_point
-            #     print("point: ", point)
-            #     print("final node: ", goal)
-
-            #     #Simulate driving the robot towards the closest point
-            #     curr_node = goal
-            #     traj_cum, vel, rot_vel = self.simulate_trajectory(curr_node, point)
-            #     thresh = 2
-            #     for i in range(10):
-            #         # until reaches point or there is collision
-            #         trajectory_o = self.trajectory_rollout(vel[None, :], rot_vel[None, :], curr_node, point) # world points, input world
-            #         traj = trajectory_o.copy()
-            #         traj[:, 0:2] = self.point_to_cell(traj[:, 0:2].T).T #turn to map
-            #         traj = traj.squeeze().astype(int)
-
-            #         collision = False
-            #         if self.is_collide(traj[:, 0:2].T):
-            #             collision = True
-            #             print("collision true")
-            #             break
-            #         traj_cum = np.concatenate((traj_cum, trajectory_o), axis=0)
-            #         dist_to_new = np.sqrt(np.sum(np.square(traj[-1][:2] - curr_node.T[0][:2])))
-            #         if dist_to_new < thresh:
-            #             print("no collusion")
-            #             break
-            #         curr_node = traj_cum[traj_cum.shape[0]-1, :][None, :].T
-
-            #     if collision == True:
-            #         print("skip")
-            #         continue
-
-            #     traj = traj_cum
-                        
-            #     if collision == False:
-            #         # dist = np.sqrt((self.nodes[closest_node_id].point[0]- point[0])**2 + (self.nodes[closest_node_id].point[1] - point[1])**2)
-            #         dist = np.sqrt(np.sum(np.square(self.nodes[closest_node_id].point[:2] - point[:2])))
-            #         print("adding node: ", point)
-                    
-            #         #Add closest point to path:
-            #         world_point = traj[-1]
-            #         world_point[2] = 0
-            #         # world_point[0:2] = self.cell_to_point(world_point[:2].T[None, :].T).T.squeeze()
-            #         new_node = Node(world_point[None, :].T, closest_node_id, dist) 
-            #         print("new_node.point ", new_node.point)
-                    
-            #         # map_pt = self.point_to_cell(new_node.point[:2])
-            #         # map_pt2 = self.point_to_cell(self.nodes[closest_node_id].point[:2])
-            #         # print("map pts: ", map_pt, map_pt2)
-            #         self.window.add_point(new_node.point.T[0][:2])
-            #         # self.window.add_point(map_pt.T[0][:2])
-            #         draw_pt = new_node.point.T[0][:2]
-            #         draw_pt[1] = -draw_pt[1]
-            #         self.window.add_line(draw_pt, self.nodes[closest_node_id].point.T[0][:2])
-
-            #         self.nodes.append(new_node)
-            #         self.nodes[closest_node_id].children_ids += [len(self.nodes)]
-
 
             check_ind += 1
 
