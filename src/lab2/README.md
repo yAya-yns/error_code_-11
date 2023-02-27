@@ -22,14 +22,14 @@ python3 unit_tests/ut_xxxx.py
 Potential Error:
 ```
 Traceback (most recent call last):
-  File "/yourpath/to/repo/experiments/neural_predictor.py", line 19, in <module>
-    from ppuda.deepnets1m.loader import DeepNets1M
+  File "unit_tests/ut_is_collide.py", line 1, in <module>
+    from l2_planning import *
 ModuleNotFoundError: No module named 'l2_planning'
 ```
 
 Solution: 
 ```
-export PYTHONPATH="${PYTHONPATH}:/path/to/repo/"
+export PYTHONPATH="${PYTHONPATH}:/path/to/folder/"
 ```
 
 
