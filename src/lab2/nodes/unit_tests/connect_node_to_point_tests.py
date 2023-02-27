@@ -76,7 +76,7 @@ def connect_node_to_point(num_substeps, node_i : Node, point_f : np.ndarray):
         pos = (circle_centre + min_radius * np.array([np.cos(ang), np.sin(ang)]))
         path[:, i] = np.concatenate([pos, [theta - i * delta_angle]])
 
-    if False:
+    if True:
         fig = plt.figure()
         ax = fig.add_subplot()
         circle1 = patches.Circle(circle_centre, radius=min_radius)

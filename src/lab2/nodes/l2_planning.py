@@ -158,20 +158,20 @@ class PathPlanner:
                 return True
         return False
     
-    def closest_node(self, point):
-        # Returns the index of the closest node
-        # print("TO DO: Implement a method to get the closest node to a sampled point")
-        closest = 1000000
-        ind = False
-        for i in range(len(self.nodes)):
-            dist = np.sqrt(np.square(np.sum(self.nodes[i].point.squeeze() - point.squeeze())))
-            if dist < closest:
-                closest = dist
-                ind = i
+    def closest_node(self, point : np.ndarray) -> int:
+        '''
+        Returns the index of the closest node
+        '''
+        assert point.shape == (2,), point.shape
+        point = point.reshape(2, 1)
 
-        return ind
+        print([n.point for n in self.nodes])
+        nodes = np.hstack([n.point[0:2] for n in self.nodes])
+        diff = nodes - point
+        dist = np.sum(np.square(diff), axis=0)
+        return np.argmin(dist)
     
-    def simulate_trajectory(self, node_i : np.ndarray, point_s : np.ndarray):
+    def simulate_trajectory(self, node_i : np.ndarray, point_s : np.ndarray) -> tuple:
         #Simulates the non-holonomic motion of the robot.
         #This function drives the robot from node_i towards point_s. This function does has many solutions!
         #node_i is a 3 by 1 vector [x;y;theta] this can be used to construct the SE(2) matrix T_{OI} in course notation
@@ -179,22 +179,19 @@ class PathPlanner:
         # recieve map points
         assert node_i.shape == (3,), node_i.shape
         assert point_s.shape == (2,), point_s.shape
-        # print("TO DO: Implment a method to simulate a trajectory given a sampled point") uhhh 
-        # print("node_i:", node_i)
-        # print("point_s:", point_s)
-        vel, rot_vel = self.robot_controller(node_i, point_s)
-        # print("vel: ", vel)
-        # print("rot_vel: ", rot_vel)
-
-        # do enough timesteps to get there I guess?
-        # calc how much time needed for generated vels to get to point_s
         
+        # calculate vel and rot_vel to get from node_i to point_s
+        vel, rot_vel = self.robot_controller(node_i, point_s)
+        
+        # generate trajectory using vel and rot_vel, no collision detection
         robot_traj = self.trajectory_rollout(vel, rot_vel, node_i)
         return robot_traj, vel, rot_vel
     
-    def robot_controller(self, node_i : np.ndarray, point_s : np.ndarray):
-        #This controller determines the velocities that will nominally move the robot from node i to node s
-        #Max velocities should be enforced
+    def robot_controller(self, node_i : np.ndarray, point_s : np.ndarray) -> tuple:
+        '''
+        This controller determines the velocities that will nominally move the robot from node i to node s
+        Max velocities should be enforced
+        '''
         assert node_i.shape == (3,)
         assert point_s.shape == (2,), point_s.shape
 
@@ -339,9 +336,11 @@ class PathPlanner:
                 return 0
     
     def trajectory_rollout(self, vel : float, rot_vel : float, curr_pose : np.ndarray) -> np.ndarray:
-        # Given your chosen velocities determine the trajectory of the robot for your gtimestep
-        # The returned trajectory should be a series of points to check for collisions
-        #RECIEVE WORLD POINTS
+        '''
+        Given your chosen velocities determine the trajectory of the robot for your timestep
+        The returned trajectory should be a series of points to check for collisions
+        RECIEVE WORLD POINTS
+        '''
         assert curr_pose.shape == (3,), curr_pose.shape
         assert type(vel) == type(rot_vel) and type(vel) in [np.float64, float], type(vel)
         assert vel > 0
@@ -560,100 +559,49 @@ class PathPlanner:
     def rrt_planning(self):
         #This function performs RRT on the given map and robot
         #You do not need to demonstrate this function to the TAs, but it is left in for you to check your work
-        path_finding = True
-        check_final = 10000
-        check_ind = 0
-        c_goal_ind = 0
-        c_goal_final = 10
-        # self.window.add_point(np.array([-10, -10]))
-        # input()
-        while path_finding: #Most likely need more iterations than this to complete the map!
-            #Sample map space
-            point = self.sample_map_space() #world
-            while self.check_if_duplicate(point):
-                point = self.sample_map_space()
+        print(self.nodes)
+        # for loop
+        # 1. sample point from map
+        # 2. find the closest existing node
+        # 3. simulate trajectory from closest node to new node
+        # 5. if no collision add the trajectory into the tree, if yes collision don't add point
+        # 6. check if close enough to goal
+        
+        n_iter = 30
+        to_goal_threshold = 5.0
+        for i in range(n_iter): #Most likely need more iterations than this to complete the map!
+            print(f'i: {i}')
+            # 1. sample point from map
+            # TODO: depending on how point is sampled, might need to check duplicate
+            # new_point = self.sample_map_space() # TODO: need to fix
+            new_point = np.random.uniform(low=[0, 0], high=[10, -20], size=(1, 2)).reshape(2,)
+            print(f'newpoint: {new_point}')
+            
+            # 2. find the closest existing node
+            closest_node_id = self.closest_node(new_point)
+            closest_point = self.nodes[closest_node_id].point
+            print(f'closest point: {closest_point}')
 
-            #Get the closest point
-            closest_node_id = self.closest_node(point)
-            print("point: ", point)
-            print("closest node: ", self.nodes[closest_node_id].point)
-
+            # 3. simulate trajectory from closest node to new node
             #Simulate driving the robot towards the closest point
-            curr_node = self.nodes[closest_node_id].point
-            traj_cum, vel, rot_vel = self.simulate_trajectory(curr_node.reshape(3), point[0:2])
-            thresh = 2
-            for i in range(10):
-                # until reaches point or there is collision
-                trajectory_o = self.trajectory_rollout(vel, rot_vel, curr_node.reshape(3)) # world points, input world
-                traj = trajectory_o.copy()
-                traj[:, 0:2] = self.point_to_cell(traj[:, 0:2].T).T #turn to map
-                traj = traj.squeeze().astype(int)
+            traj, vel, rot_vel = self.simulate_trajectory(closest_point.reshape(3), new_point[0:2])
 
-                collision = False
-                if self.is_collide(traj[:, 0:2].T):
-                    collision = True
-                    print("collision true")
-                    break
-                traj_cum = np.concatenate((traj_cum, trajectory_o), axis=0)
-                dist_to_new = np.sqrt(np.sum(np.square(traj[-1][:2] - curr_node.T[0][:2])))
-                if dist_to_new < thresh:
-                    print("no collusion")
-                    break
-                curr_node = traj_cum[traj_cum.shape[0]-1, :][None, :].T
-
-            if collision == True:
-                print("skip")
+            # 4. check if traj collides with map or obstacle
+            if True or not self.is_collide(traj) :   # TODO: remove 'True or' once collision detection done 
+                new_node = Node(np.vstack((new_point.reshape(2, 1), 0)), closest_node_id, 1)  # constant cost for now
+                self.nodes.append(new_node)
+            else:
+                print(f'new point trajectory has collision')
                 continue
 
-            traj = traj_cum
-
-            #Check for collisions
-            # print("TO DO: Check for collisions and add safe points to list of nodes.")
-            # traj = np.array((3, self.num_substeps)) of points
-            # check collision between two lines?
-            # traj = trajectory_o # occupancy grid points
-            print('finished getting trajectory')
-                    
-            if collision == False:
-                # dist = np.sqrt((self.nodes[closest_node_id].point[0]- point[0])**2 + (self.nodes[closest_node_id].point[1] - point[1])**2)
-                dist = np.sqrt(np.sum(np.square(self.nodes[closest_node_id].point[:2] - point[:2])))
-                print("adding node: ", point)
-                  
-                #Add closest point to path:
-                world_point = traj[-1]
-                # world_point[2] = 0 _______________HERE TO CHANGE THETA BACK TO 0____________________
-                # world_point[0:2] = self.cell_to_point(world_point[:2].T[None, :].T).T.squeeze()
-                new_node = Node(world_point[None, :].T, closest_node_id, dist) 
-                print("new_node.point ", new_node.point)
-                
-                self.window.add_point(new_node.point.T[0][:2])
-                # draw_pt = new_node.point.T[0][:2]
-                # draw_pt[1] = -draw_pt[1]
-                # self.window.add_line(draw_pt, self.nodes[closest_node_id].point.T[0][:2])
-
-                self.nodes.append(new_node)
-                self.nodes[closest_node_id].children_ids += [len(self.nodes)]
-
-                point = np.zeros((3,1))
-                point[:2] = self.goal_point 
-                dist_to_goal = np.sqrt(np.sum(np.square(new_node.point[:2] - point[:2])))
-                print("dist to goal: ", dist_to_goal)
-                if dist_to_goal < self.stopping_dist:
-                    # if new point is within target radius:
-                    path_finding = False
-                    points = [i.point for i in self.nodes]
-                    print("final points: ", points)
+            # 6. check if close enough to goal
+            if np.linalg.norm(new_point - self.goal_point) < to_goal_threshold:
+                traj, vel, rot_vel = self.simulate_trajectory(new_point, self.goal_point[0:2])
+                if True or self.is_collide(traj):   # TODO: remove 'True or' once collision detection done 
+                    new_node = Node(self.goal_point, len(self.nodes) - 1, 1)
+                    self.nodes.append(new_node)
+                    print('goal point found in rrt')
                     break
-
-            check_ind += 1
-
-            if check_ind == check_final:
-                print("FAILED")
-                break
-        
-        
-        points = [i.point for i in self.nodes]
-        print("final points: ", points)
 
         return self.nodes
     
@@ -706,6 +654,8 @@ def main():
     #RRT precursor
     path_planner = PathPlanner(map_filename, map_setings_filename, goal_point, stopping_dist)
     nodes = path_planner.rrt_planning()
+    print(nodes)
+    exit()
     node_path_metric = np.hstack(path_planner.recover_path())
     print(nodes)
     print(node_path_metric)
