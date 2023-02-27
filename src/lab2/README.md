@@ -16,7 +16,7 @@ Run in seperate terminal (using docker):
 
 ```
 cd ~/catkin_ws/src/lab2/nodes
-python3 ut_xxxx.py
+python3 unit_tests/ut_xxxx.py
 ```
 
 Potential Error:
