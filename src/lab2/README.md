@@ -24,7 +24,7 @@ Potential Error:
 Traceback (most recent call last):
   File "/yourpath/to/repo/experiments/neural_predictor.py", line 19, in <module>
     from ppuda.deepnets1m.loader import DeepNets1M
-ModuleNotFoundError: No module named 'ppuda.deepnets1m'
+ModuleNotFoundError: No module named 'l2_planning'
 ```
 
 Solution: 
