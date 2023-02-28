@@ -231,13 +231,16 @@ class PathPlanner:
         x_range = np.arange(0,len(self.occupancy_map[0]))  # col
         y_range = np.arange(0,len(self.occupancy_map))  # row
         print(points)
+        print(self.map_shape)
         for point in points:
             cx = point[0]
             cy = point[1]
             robot_occupancy = (x_range[np.newaxis,:]-cx)**2 + (y_range[:,np.newaxis]-cy)**2 < robot_radius_in_cell**2  # (x,y) fashion
             if obstacle_value in self.occupancy_map[robot_occupancy]:  # colliding
                 return True
-            if abs(cy) > self.map_shape[0] or abs(cx) > self.map_shape[1]:
+            if abs(cy) >= self.map_shape[0] or abs(cx) >= self.map_shape[1]:
+                return True
+            if cy<0 or cx<0:
                 return True
         return False
 
@@ -270,24 +273,19 @@ class PathPlanner:
         radius = vel / rot_vel
         circle_centre = radius * on_right * robot_right_direction + robot_xy
 
-        timestep_factor = int(self.num_substeps * radius/4) * self.num_substeps
-        print("substeps: ", self.num_substeps)
-        print("radius: ", radius)
-        print("factor: ", timestep_factor)
-
         # generate trajectory along circle
         start_angle = theta + np.pi/2 * on_right
         delta_angle = rot_vel * self.timestep
 
-        traj = np.zeros((3, timestep_factor))
-        for i in range(timestep_factor):
+        traj = np.zeros((3, self.num_substeps))
+        for i in range(self.num_substeps):
             ang = start_angle - i * delta_angle * on_right
             traj[2, i] = theta - i * delta_angle * on_right
             pos = (circle_centre + radius * np.array([np.cos(ang), np.sin(ang)]))
             traj[0:2, i] = pos
             dist_to_goal_pose = np.sqrt(np.sum(np.square(pos - goal_pose[:2])))
             
-            if dist_to_goal_pose < self.sim_stopping_dist and i < (timestep_factor - 1):
+            if dist_to_goal_pose < self.sim_stopping_dist and i < (self.num_substeps - 1):
                 traj[2, i+1] = theta - (i+1) * delta_angle * on_right
                 traj[0:2, i+1] = goal_pose[:2]
                 traj = traj[:, :i+2]
