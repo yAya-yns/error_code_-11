@@ -19,7 +19,7 @@ def load_map(filename):
         im = im[:,:,0]
     im_np = np.array(im)  #Whitespace is true, black is false
     #im_np = np.logical_not(im_np)    
-    return im_np
+    return im_np 
 
 
 def load_map_yaml(filename):
@@ -54,7 +54,7 @@ class PathPlanner:
         print(f'self.bounds: \n{self.bounds}')
 
         #Robot information
-        self.robot_radius = 0.22 #m
+        self.robot_radius = 0.5 #m
         self.vel_max = 0.5 #m/s (Feel free to change!)
         self.rot_vel_max = 0.2 #rad/s (Feel free to change!)
 
@@ -485,7 +485,7 @@ class PathPlanner:
                 traj, vel, rot_vel = self.simulate_trajectory(point, self.goal_point[0:2].squeeze())
                 traj = self.point_to_cell(traj[:2])
                 if not self.is_collide(traj):   # TODO: remove 'True or' once collision detection done 
-                    new_node = Node(self.goal_point, len(self.nodes) - 1, 1)
+                    new_node = Node(np.vstack((self.goal_point[:2].reshape(2, 1), 0)), len(self.nodes) - 1, 1)
                     self.nodes.append(new_node)
                     self.trajectories.append(traj)
                     print('goal point found in rrt')
@@ -569,11 +569,11 @@ def main():
     #RRT precursor
     path_planner = PathPlanner(map_filename, map_setings_filename, goal_point, stopping_dist)
     nodes = path_planner.rrt_planning()
-    print(nodes)
-    exit()
+    #print(nodes)
+    #exit()
     node_path_metric = np.hstack(path_planner.recover_path())
-    print(nodes)
-    print(node_path_metric)
+    #print(nodes)
+    #print(node_path_metric)
     #Leftover test functions
     np.save("shortest_path.npy", node_path_metric)
 
