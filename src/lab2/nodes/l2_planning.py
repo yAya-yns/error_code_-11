@@ -310,33 +310,20 @@ class PathPlanner:
     def is_collide(self, points : np.ndarray) -> bool:
         # check for multiple points if collides with circle 
         # RECIEVE MAP POINTS
-        assert points.shape[0] == 2
-        # print(points)
-        # print(self.map_shape)
-        # print(np.amax(points, axis=1))
-        # print(np.amin(points, axis=1))
-        # a = np.logical_or(np.amax(points, axis=1) > self.map_shape, np.amin(points, axis=1) < 0)
-        # print(a)
-        # print(a.any())
+        # robot radius: self.robot_radius
+        # maps: self.occupancy_map (2d array, 0 represents obstacles)
+        obstacle_value = 0
+        robot_radius_in_cell = np.ceil(self.robot_radius / self.map_settings_dict['resolution'])
+        x_range = np.arange(0,len(self.occupancy_map[0]))  # col
+        y_range = np.arange(0,len(self.occupancy_map))  # row
+        for point in points:
+            cy = point[0]
+            cx = point[1]
+            robot_occupancy = (x_range[np.newaxis,:]-cx)**2 + (y_range[:,np.newaxis]-cy)**2 < robot_radius_in_cell**2  # (x,y) fashion
+            if obstacle_value in self.occupancy_map[robot_occupancy]:  # colliding
+                return True
+        return False
 
-        # exit()
-        
-        if np.logical_or(np.amax(points, axis=1) > self.map_shape, np.amin(points, axis=1) < 0).any():
-            print("COLLISION OUT OF BOUNDS")
-            return True
-            
-        disks = self.points_to_robot_circle(points.T)
-
-        # RECIEVE MAP POINTS
-        for disk in disks:
-            if ~np.any(self.occupancy_map[disk[1].astype(int), disk[0].astype(int)]): #<self.map_settings_dict['occupied_thresh']:
-                print(disk, points, self.occupancy_map[disk[1].astype(int), disk[0].astype(int)])
-                return 1
-            if np.sum(self.occupancy_map[disk[1].astype(int), disk[0].astype(int)]) <self.map_settings_dict['occupied_thresh']:
-                print(disk, points, self.occupancy_map[disk[1].astype(int), disk[0].astype(int)])
-                return 1
-            else:
-                return 0
     
     def trajectory_rollout(self, vel : float, rot_vel : float, curr_pose : np.ndarray) -> np.ndarray:
         # Given your chosen velocities determine the trajectory of the robot for your gtimestep
