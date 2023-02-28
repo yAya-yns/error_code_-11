@@ -337,7 +337,7 @@ class PathPlanner:
             else:
                 return 0
     
-    def trajectory_rollout(self, vel : float, rot_vel : float, curr_pose : np.ndarray) -> np.ndarray:
+    def trajectory_rollout(self, vel : float, rot_vel : float, curr_pose : np.ndarray, goal_pose : np.ndarray) -> np.ndarray:
         # Given your chosen velocities determine the trajectory of the robot for your gtimestep
         # The returned trajectory should be a series of points to check for collisions
         #RECIEVE WORLD POINTS
@@ -589,7 +589,7 @@ class PathPlanner:
             thresh = 2
             for i in range(10):
                 # until reaches point or there is collision
-                trajectory_o = self.trajectory_rollout(vel, rot_vel, curr_node.reshape(3)) # world points, input world
+                trajectory_o = self.trajectory_rollout(vel, rot_vel, curr_node.reshape(3), point[0:2]) # world points, input world
                 traj = trajectory_o.copy()
                 traj[:, 0:2] = self.point_to_cell(traj[:, 0:2].T).T #turn to map
                 traj = traj.squeeze().astype(int)
