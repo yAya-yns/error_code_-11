@@ -31,6 +31,10 @@ def main():
     np.testing.assert_almost_equal(10 + np.sqrt(2), path_planner.nodes[1].cost)
     np.testing.assert_almost_equal(11, path_planner.nodes[2].cost)
     np.testing.assert_almost_equal(11, path_planner.nodes[3].cost)
+
+
+    # TODO: more chained nodes together
+    
     print("passed all tests")
     return True
 
