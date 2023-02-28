@@ -68,7 +68,7 @@ class PathPlanner:
         #Trajectory Simulation Parameters
         self.timestep = 2.0 #s used to be 1.0
         # self.num_substeps = 10
-        self.num_substeps = int(10 * self.timestep)
+        self.num_substeps = int(1000 * self.timestep)
 
         #Planning storage
         node = np.zeros((3,1)) #WORLD
@@ -120,28 +120,29 @@ class PathPlanner:
             cent = self.point_to_cell(self.nodes[node_ind].point[:2]).squeeze()
         map_circles_r, map_circles_c = disk((cent[0], cent[1]), 100) # radius of 5m 100 cells
         
-        # rand = np.random.rand(3,)
-        x = np.random.rand() * (self.bounds[0, 1] - self.bounds[0, 0])  + self.bounds[0, 0]
-        y = np.random.rand() * (self.bounds[1, 1] - self.bounds[1, 0])  + self.bounds[1, 0] 
+        # # rand = np.random.rand(3,)
+        # x = np.random.rand() * (self.bounds[0, 1] - self.bounds[0, 0])  + self.bounds[0, 0]
+        # y = np.random.rand() * (self.bounds[1, 1] - self.bounds[1, 0])  + self.bounds[1, 0] 
+        
         theta = np.random.rand() * 2 * np.pi  - np.pi
 
-        # random.randrange(len(map_circles_r))
-        # y = map_circles_c[random.randrange(len(map_circles_c))]
-        # x = map_circles_r[random.randrange(len(map_circles_r))]
+        random.randrange(len(map_circles_r))
+        y = map_circles_c[random.randrange(len(map_circles_c))]
+        x = map_circles_r[random.randrange(len(map_circles_r))]
 
-        # point = self.cell_to_point(np.array([x, y])[None, :].T)
-        # x = point[0][0]
-        # y = point[1][0]
+        point = self.cell_to_point(np.array([x, y])[None, :].T)
+        x = point[0][0]
+        y = point[1][0]
 
-        # if x < self.bounds[0, 0]:
-        #     x = self.bounds[0, 0]
-        # if x > self.bounds[0, 1]:
-        #     x = self.bounds[0, 1]
+        if x < self.bounds[0, 0]:
+            x = self.bounds[0, 0]
+        if x > self.bounds[0, 1]:
+            x = self.bounds[0, 1]
 
-        # if y < self.bounds[1, 0]:
-        #     y = self.bounds[1, 0]
-        # if y > self.bounds[1, 1]:
-        #     y = self.bounds[1, 1]
+        if y < self.bounds[1, 0]:
+            y = self.bounds[1, 0]
+        if y > self.bounds[1, 1]:
+            y = self.bounds[1, 1]
 
         rand = np.array([x, y, theta])
         return rand
@@ -216,6 +217,15 @@ class PathPlanner:
             factor = self.vel_max / ret_v
             ret_v = factor * ret_v
             ret_w = factor * ret_w
+        assert ret_v > 0, (ret_v, factor, ret_w)
+
+        #  TODO # return a straight line if w=0
+        # if ret_w == 0:
+        #     temp = np.linspace([1, 1], [self.num_substeps, self.num_substeps], self.num_substeps).T - 1
+        #     ret = np.zeros((3, self.num_substeps))
+        #     ret[0:2, :] = temp * vel * robot_direction.reshape(2, 1) * self.timestep + robot_xy.reshape(2, 1) # broadcast
+        #     ret[2, :] = theta
+        #     return ret
         
         return ret_v, ret_w
         
@@ -557,13 +567,13 @@ class PathPlanner:
 
 def main():
     #Set map information
-    # map_filename = "willowgarageworld_05res.png"
-    map_filename = "myhal.png"
-    map_setings_filename = "myhal.yaml"
-    # map_setings_filename = "willowgarageworld_05res.yaml"
+    map_filename = "willowgarageworld_05res.png"
+    # map_filename = "myhal.png"
+    # map_setings_filename = "myhal.yaml"
+    map_setings_filename = "willowgarageworld_05res.yaml"
 
     #robot information
-    goal_point = np.array([[7], [2]]) #m WORLD POINTS
+    goal_point = np.array([[20], [-20]])# np.array([[7], [2]]) #m WORLD POINTS
     stopping_dist = 0.5 #m
 
     #RRT precursor
