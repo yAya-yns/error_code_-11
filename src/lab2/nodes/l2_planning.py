@@ -77,9 +77,6 @@ class PathPlanner:
         self.nodes = [Node(node, -1, 0)]
         self.final_nodes = [Node(self.goal_point, -1, 0)]
         
-        self.node_pts = np.zeros((3,1))[:2][None]
-        # print(self.node_pts)
-
         self.trajectories = [] #list of all added trajectories we want to plot
 
         # #RRT* Specific Parameters
@@ -262,7 +259,6 @@ class PathPlanner:
         # print("TO DO: Implement a method to get the map cell the robot is currently occupying")
         # map origin = [-21.0, -49.25, 0.000000]
         # point = [[],[],[]]
-        #TODO smth wrong
         map_origin = self.map_settings_dict['origin'][0:2]
         res = self.map_settings_dict['resolution']
         occ_points = point - np.tile(map_origin, (point.shape[1], 1)).T
