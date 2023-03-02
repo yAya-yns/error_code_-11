@@ -57,6 +57,7 @@ class PathPlanner:
         self.robot_radius = 0.5 #m
         self.vel_max = 0.5 #m/s (Feel free to change!)
         self.rot_vel_max = 0.2 #rad/s (Feel free to change!)
+        self.min_radius = 2.0 # minimum turning radius
 
         #Goal Parameters
         self.goal_point = goal_point #m
@@ -68,7 +69,7 @@ class PathPlanner:
         #Trajectory Simulation Parameters
         self.timestep = 2.0 #s used to be 1.0
         # self.num_substeps = 10
-        self.num_substeps = int(10 * self.timestep)
+        self.num_substeps = int(30)
 
         #Planning storage
         node = np.zeros((3,1)) #WORLD
@@ -79,12 +80,12 @@ class PathPlanner:
         
         self.trajectories = [] #list of all added trajectories we want to plot
 
-        # #RRT* Specific Parameters
-        # self.lebesgue_free = np.sum(self.occupancy_map) * self.map_settings_dict["resolution"] **2
-        # self.zeta_d = np.pi
-        # self.gamma_RRT_star = 2 * (1 + 1/2) ** (1/2) * (self.lebesgue_free / self.zeta_d) ** (1/2)
-        # self.gamma_RRT = self.gamma_RRT_star + .1
-        # self.epsilon = 2.5
+        #RRT* Specific Parameters
+        self.lebesgue_free = np.sum(self.occupancy_map) * self.map_settings_dict["resolution"] **2
+        self.zeta_d = np.pi
+        self.gamma_RRT_star = 2 * (1 + 1/2) ** (1/2) * (self.lebesgue_free / self.zeta_d) ** (1/2)
+        self.gamma_RRT = self.gamma_RRT_star + .1
+        self.epsilon = 2.5
         
         return
 
@@ -184,10 +185,12 @@ class PathPlanner:
         return ret_v, ret_w
         
     def is_collide(self, points : np.ndarray) -> bool:
-        # check for multiple points if collides with circle 
-        # RECIEVE MAP POINTS
-        # robot radius: self.robot_radius
-        # maps: self.occupancy_map (2d array, 0 represents obstacles)
+        '''
+        check for multiple points if collides with circle
+        RECIEVE MAP POINTS
+        robot radius: self.robot_radius
+        maps: self.occupancy_map (2d array, 0 represents obstacles)
+        '''
         points = points.T
         obstacle_value = 0
         robot_radius_in_cell = np.ceil(self.robot_radius / self.map_settings_dict['resolution'])
@@ -220,7 +223,7 @@ class PathPlanner:
         # return a straight line if w=0
         if rot_vel == 0:
             temp = np.linspace([1, 1], [self.num_substeps, self.num_substeps], self.num_substeps).T - 1
-            ret = np.zeros((3, self.num_substeps))
+            ret = np.zeros((3, 30))
             ret[0:2, :] = temp * vel * robot_direction.reshape(2, 1) * self.timestep + robot_xy.reshape(2, 1) # broadcast
             ret[2, :] = theta
             return ret
@@ -239,7 +242,7 @@ class PathPlanner:
         delta_angle = rot_vel * self.timestep
 
         traj = np.zeros((3, self.num_substeps))
-        for i in range(self.num_substeps):
+        for i in range(self.num_substeps - 1):
             ang = start_angle - i * delta_angle * on_right
             traj[2, i] = theta - i * delta_angle * on_right
             pos = (circle_centre + radius * np.array([np.cos(ang), np.sin(ang)]))
@@ -304,19 +307,17 @@ class PathPlanner:
         return min(self.gamma_RRT * (np.log(card_V) / card_V ) ** (1.0/2.0), self.epsilon)
     
     def connect_node_to_point(self, node_i : Node, point_f : np.ndarray):
-        #Given two nodes find the non-holonomic path that connects them
-        #Settings
-        #node is a 3 by 1 node
-        #point is a 2 by 1 point
+        '''
+        Given two nodes find the non-holonomic path that connects them
+        Settings
+        node is a 3 by 1 node
+        point is a 2 by 1 point
+        '''
 
         # the following code assumes that point_f is outside of the robot's maximum turn circle
         # point_f.reshape(2)
-        assert node_i.point.shape == (3, 1)
-        assert point_f.shape == (2,)
-        assert self.num_substeps >= 3
-
-        path = np.zeros((3, self.num_substeps))
-        min_radius = 2 #TODO: get minimum radius from velocity and maximum angular velocity
+        assert node_i.point.shape == (3, 1), node_i.point.shape
+        assert point_f.shape == (2,), point_f.shape
 
         # first check if the point is at the left or right side of the robot
         robot_xy, theta = node_i.point[0:2, 0], node_i.point[2, 0]
@@ -325,32 +326,50 @@ class PathPlanner:
 
         # use dot product to find whether point_f is on the right side of robot, and whether it is in front of the robot
         on_right = np.sign(np.dot(robot_right_direction, point_f - robot_xy))
-        in_front = np.sign(np.dot(robot_direction, point_f - robot_xy))
+        # in_front = np.sign(np.dot(robot_direction, point_f - robot_xy))
 
         # shit tone of math based on geometry
-        circle_centre = on_right * min_radius * robot_right_direction + robot_xy
+        circle_centre = on_right * self.min_radius * robot_right_direction + robot_xy
         circle_centre_to_point_f = point_f - circle_centre
         circle_centre_to_point_f_length = np.linalg.norm(circle_centre - point_f)
-        alpha = np.arccos(min_radius / circle_centre_to_point_f_length) * on_right
+        
+        # assert circle_centre_to_point_f_length > min_radius, (circle_centre_to_point_f, robot_xy, point_f)
+        
+        print(f'circle_centre_to_point_f_length: {circle_centre_to_point_f_length}')
+        print(f'circle_centre: {circle_centre}')
+        alpha = np.arccos(self.min_radius / circle_centre_to_point_f_length) * on_right
         beta = np.arctan2(circle_centre_to_point_f[1], circle_centre_to_point_f[0])
-        turning_point = (circle_centre + min_radius * np.array([np.cos(alpha + beta), np.sin(alpha + beta)]))
+        turning_point = (circle_centre + self.min_radius * np.array([np.cos(alpha + beta), np.sin(alpha + beta)]))
         theta_at_turning_point = np.arctan2(point_f[1] - turning_point[1], point_f[0] - turning_point[0])
-
-        # filling in the start, finish, and turning point
-        path[:, -1] = np.concatenate([point_f, [theta_at_turning_point]], axis=0)
-        path[:, -2] = np.concatenate([turning_point, [theta_at_turning_point]], axis=0)
+        print(alpha, beta)
+        # # filling in the start, finish, and turning point
+        # path[:, -1] = np.concatenate([point_f, [theta_at_turning_point]], axis=0)
+        # path[:, -2] = np.concatenate([turning_point, [theta_at_turning_point]], axis=0)
 
         # filling in the remaining points in the arc
         start_angle = theta + on_right * np.pi/2
         circle_centre_to_turning_point = turning_point - circle_centre
         turning_point_angle = np.arctan2(circle_centre_to_turning_point[1], circle_centre_to_turning_point[0])
-        delta_angle = (turning_point_angle - start_angle) / (self.num_substeps - 2)
+        
+        print(turning_point_angle, on_right, circle_centre_to_turning_point, turning_point, robot_right_direction, circle_centre)
+        arc = np.zeros((3, max(int(np.abs(turning_point_angle - start_angle)) * 100, 30)))
+        line = np.zeros((3, max(int(np.linalg.norm(turning_point - point_f)) * 100, 30)))
+        delta_angle = (turning_point_angle - start_angle) / (arc.shape[1] - 1)
+        delta = (point_f - turning_point) / (line.shape[1] - 1)
 
-        for i in range(self.num_substeps - 1):
+        # print(f'turning_point: {turning_point.shape}')
+        # print(f'point_f: {point_f.shape}')
+        
+        for i in range(arc.shape[1]):
             ang = start_angle + i * delta_angle
-            pos = (circle_centre + min_radius * np.array([np.cos(ang), np.sin(ang)]))
-            path[:, i] = np.concatenate([pos, [theta - i * delta_angle]])
+            pos = (circle_centre + self.min_radius * np.array([np.cos(ang), np.sin(ang)]))
+            arc[:, i] = np.concatenate([pos, [theta - i * delta_angle]])
 
+        for i in range(line.shape[1]):
+            pos = turning_point + i * delta
+            line[:, i] = np.concatenate([pos, [turning_point_angle]])
+        
+        path = np.concatenate((arc, line), axis=1)
         return path
     
     def cost_to_come(self, trajectory_o, rot_cost_coefficient=0):
@@ -412,11 +431,13 @@ class PathPlanner:
 
             #Simulate driving the robot towards the closest point
             curr_node = self.nodes[closest_node_id].point
-            traj, vel, rot_vel = self.simulate_trajectory(curr_node.reshape(3), point[0:2])
-            # traj = self.connect_node_to_point(self.nodes[closest_node_id], point[0:2])
-            traj = self.point_to_cell(traj[:2])
+            if np.linalg.norm(curr_node.reshape(3)[:2] - point[0:2]) > self.min_radius*2:
+                traj = self.connect_node_to_point(self.nodes[closest_node_id], point[0:2])
+            else:
+                traj, vel, rot_vel = self.simulate_trajectory(curr_node.reshape(3), point[0:2])
 
             # 4. check if traj collides with map or obstacle
+            traj = self.point_to_cell(traj[:2])
             if not self.is_collide(traj):
                 new_node = Node(np.vstack((point[:2].reshape(2, 1), 0)), closest_node_id, 1)  # constant cost for now
                 self.nodes.append(new_node)
@@ -444,20 +465,52 @@ class PathPlanner:
         return self.nodes
     
     def rrt_star_planning(self):
-        #This function performs RRT* for the given map and robot        
-        for i in range(1): #Most likely need more iterations than this to complete the map!
+        '''
+        This function performs RRT* for the given map and robot
+        '''
+        path_finding = True
+        plot = 0
+
+        while path_finding:
             #Sample
-            point = self.sample_map_space()
+            point = self.sample_map_space(use_heuristic=False)
 
             #Closest Node
-            closest_node_id = self.closest_node(point)
+            closest_node_id = self.closest_node(point[:2])
 
             #Simulate trajectory
-            trajectory_o = self.simulate_trajectory(self.nodes[closest_node_id].point, point)
-            # traj = np.array((3, self.num_substeps)) of points
+            curr_node = self.nodes[closest_node_id].point
+            traj, vel, rot_vel = self.simulate_trajectory(curr_node.reshape(3), point[0:2])
+            # traj = self.connect_node_to_point(self.nodes[closest_node_id], point[0:2])
+            traj = self.point_to_cell(traj[:2])
 
             #Check for Collision
-            print("TO DO: Check for collision.")
+            if not self.is_collide(traj):
+                new_node = Node(np.vstack((point[:2].reshape(2, 1), 0)), closest_node_id, 1)  # constant cost for now
+                self.nodes.append(new_node)
+                self.trajectories.append(traj)
+                plot += 1
+                if plot % 100 == 0:
+                    self.plot_nodes()
+            else:
+                print(f'new point trajectory has collision')
+                continue
+            
+            #Last node rewire
+            print("TO DO: Last node rewiring")
+
+            # check if close enough to goal
+            if np.linalg.norm(new_node.point[:2] - self.goal_point) < self.stopping_dist:
+                traj, vel, rot_vel = self.simulate_trajectory(point, self.goal_point[0:2].squeeze())
+                # traj = self.connect_node_to_point(new_node, self.goal_point[0:2].squeeze())
+                traj = self.point_to_cell(traj[:2])
+                if not self.is_collide(traj):
+                    new_node = Node(np.vstack((self.goal_point[:2].reshape(2, 1), 0)), len(self.nodes) - 1, 1)
+                    self.nodes.append(new_node)
+                    self.trajectories.append(traj)
+                    print('goal point found in rrt')
+                    self.plot_nodes()
+                    break
 
             #Last node rewire
             print("TO DO: Last node rewiring")
@@ -532,3 +585,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
