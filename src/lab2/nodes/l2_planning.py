@@ -14,7 +14,7 @@ import random
 
 
 def load_map(filename):
-    im = mpimg.imread("../maps/" + filename)
+    im = mpimg.imread("src/lab2/maps/" + filename)
     if len(im.shape) > 2:
         im = im[:,:,0]
     im_np = np.array(im)  #Whitespace is true, black is false
@@ -23,7 +23,7 @@ def load_map(filename):
 
 
 def load_map_yaml(filename):
-    with open("../maps/" + filename, "r") as stream:
+    with open("src/lab2/maps/" + filename, "r") as stream:
             map_settings_dict = yaml.safe_load(stream)
     return map_settings_dict
 
@@ -85,7 +85,7 @@ class PathPlanner:
         self.zeta_d = np.pi
         self.gamma_RRT_star = 2 * (1 + 1/2) ** (1/2) * (self.lebesgue_free / self.zeta_d) ** (1/2)
         self.gamma_RRT = self.gamma_RRT_star + .1
-        self.epsilon = 2.5
+        self.epsilon = 10
         
         return
     
@@ -114,6 +114,7 @@ class PathPlanner:
         new_node = Node(np.vstack((point.reshape(2, 1), 0)), parent_id, self.nodes[parent_id].cost + self.cost_to_come(traj))  # constant cost for now
         self.nodes.append(new_node)
         self.trajectories.append(self.point_to_cell(traj[:2]))
+        self.nodes[parent_id].children_ids.append(len(self.nodes) - 1)
         return new_node
 
     #Functions required for RRT
@@ -166,9 +167,12 @@ class PathPlanner:
     def simulate_trajectory(self, node_i : np.ndarray, point_s : np.ndarray) -> tuple:
         '''
         Simulates the non-holonomic motion of the robot.
-        This function drives the robot from node_i towards point_s. This function does has many solutions!
+        This function drives the robot from node_i towards point_s.
         node_i is a 3 by 1 vector [x;y;theta] this can be used to construct the SE(2) matrix T_{OI} in course notation
         point_s is the sampled point vector [x; y]
+
+        node_i: (3,)
+        point_s: (2,)
         '''
         assert node_i.shape == (3,), node_i.shape
         assert point_s.shape == (2,), point_s.shape
@@ -270,8 +274,8 @@ class PathPlanner:
         start_angle = theta + np.pi/2 * on_right
         delta_angle = rot_vel * self.timestep
 
-        traj = np.zeros((3, self.num_substeps))
-        for i in range(self.num_substeps - 1):
+        traj = np.zeros((3, 30))
+        for i in range(30 - 1):
             ang = start_angle - i * delta_angle * on_right
             traj[2, i] = theta - i * delta_angle * on_right
             pos = (circle_centre + radius * np.array([np.cos(ang), np.sin(ang)]))
@@ -496,6 +500,7 @@ class PathPlanner:
         plot = 0
 
         while path_finding:
+            print(plot)
             #Sample
             point = self.sample_map_space(use_heuristic=False)
 
@@ -511,32 +516,85 @@ class PathPlanner:
             if not self.is_collide(traj_cell):
                 new_node = self.add_node_and_traj(point[:2], traj, closest_node_id)
                 plot += 1
-                if plot % 1 == 0:
-                    self.plot_nodes()
+                # if plot % 10 == 0:
+                #     self.plot_nodes()
             else:
                 print(f'new point trajectory has collision')
                 continue
             
             #Last node rewire
-            
+            ball_radius = self.ball_radius()
+            # find all nodes within ball radius
+            nodes = self.get_points_array()
+            dist = np.sum(np.square(nodes - point[:2].reshape(2, 1)), axis=0)
+            nodes_in_ball = np.where(dist < ball_radius)[0]
 
+            # try rewiring for each node
+            rewired = False
+            cur_cost = self.nodes[-1].cost
+            new_parent_id = None
+            new_traj = None
+            for node_id in nodes_in_ball:
+                if node_id == len(self.nodes) - 1:  # skip the last node itself
+                    continue
+                rewire_traj = self.simulate_trajectory(self.nodes[node_id].point.reshape(3), point[:2])
+                new_cost = self.cost_to_come(rewire_traj) + self.nodes[node_id].cost
+                if new_cost < cur_cost:     # save parameters for rewiring
+                    cur_cost = new_cost
+                    new_parent_id = node_id
+                    new_traj = rewire_traj
+                    rewired = True
+            if rewired: # the actual rewiring
+                # print('rewired')
+                # self.plot_nodes(title='last node pre-rewire')
+                self.nodes[self.nodes[-1].parent_id].children_ids.remove(len(self.nodes) - 1)
+                self.nodes[-1].parent_id = new_parent_id
+                self.nodes[new_parent_id].children_ids.append(len(self.nodes) - 1)
+                self.nodes[-1].cost = new_cost
+                self.trajectories[-1] = self.point_to_cell(new_traj[:2])
+                # self.plot_nodes(title='last node post-rewire')
+
+            assert len(self.trajectories) == (len(self.nodes) - 1)
+
+
+            #Close node rewire, this checks every pair of nodes within the ball and rewires
+            while rewired:
+                rewired = False
+                for end_node_id in nodes_in_ball:
+                    cur_cost = self.nodes[end_node_id].cost
+                    new_parent_id = None
+                    new_traj = None
+                    node_rewired = False
+                    for start_node_id in nodes_in_ball:
+                        if start_node_id == end_node_id:
+                            continue
+                        rewire_traj = self.simulate_trajectory(self.nodes[start_node_id].point.reshape(3), self.nodes[end_node_id].point[:2].reshape(2))
+                        new_cost = self.cost_to_come(rewire_traj) + self.nodes[start_node_id].cost
+                        if new_cost < cur_cost:
+                            cur_cost = new_cost
+                            new_parent_id = start_node_id
+                            new_traj = rewire_traj
+                            rewired = True
+                            node_rewired = True
+                    if node_rewired:
+                        self.nodes[self.nodes[end_node_id].parent_id].children_ids.remove(end_node_id)
+                        self.nodes[end_node_id].parent_id = new_parent_id
+                        self.nodes[new_parent_id].children_ids.append(end_node_id)
+                        self.nodes[end_node_id].cost = cur_cost
+                        self.trajectories[end_node_id - 1] = self.point_to_cell(new_traj[:2])
+                    assert len(self.trajectories) == (len(self.nodes) - 1)
+            # print(f'all nodes in ball rewire complete')
 
             # check if close enough to goal
             if np.linalg.norm(new_node.point[:2] - self.goal_point) < self.stopping_dist:
                 traj = self.simulate_trajectory(point, self.goal_point[0:2].squeeze())
                 traj_cell = self.point_to_cell(traj[:2])
                 if not self.is_collide(traj_cell):
-                    self.add_node_and_traj(self.goal_point[:2], traj, len(self.nodes) - 1)
-                    print('goal point found in rrt')
-                    self.plot_nodes()
+                    self.add_node_and_traj(self.goal_point[:2].reshape(2), traj, len(self.nodes) - 1)
+                    print('goal point found in rrt star')
+                    self.plot_nodes(title='goal found')
                     break
 
-
-            #Close node rewire
-            print("TO DO: Near point rewiring")
-
-            #Check for early end
-            print("TO DO: Check for early end")
         return self.nodes
     
     def recover_path(self, node_id = -1):
@@ -548,7 +606,7 @@ class PathPlanner:
         path.reverse()
         return path
     
-    def plot_nodes(self):
+    def plot_nodes(self, title=''):
         # Set the figure size
         start_node = np.zeros((1, 2))
         # plt.rcParams["figure.figsize"] = [self.map_shape[0], self.map_shape[1]]
@@ -572,6 +630,7 @@ class PathPlanner:
         # plot each trajectory
         for traj in self.trajectories:
             plt.plot(traj[0, :], traj[1, :], color='red', alpha=0.3)
+        plt.title(title)
         plt.show()
         return 0
 
@@ -592,8 +651,8 @@ def main():
     #RRT precursor
     path_planner = PathPlanner(map_filename, map_setings_filename, goal_point, stopping_dist)
     
-    nodes = path_planner.rrt_planning()
-    # nodes = path_planner.rrt_star_planning()
+    # nodes = path_planner.rrt_planning()
+    nodes = path_planner.rrt_star_planning()
 
     node_path_metric = np.hstack(path_planner.recover_path())
 
@@ -602,5 +661,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
