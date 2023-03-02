@@ -88,6 +88,33 @@ class PathPlanner:
         self.epsilon = 2.5
         
         return
+    
+    # custom helper functions
+    def get_points_array(self) -> np.ndarray:
+        '''
+        Return a 2xn np array of points from self.nodes
+        '''
+        nodes = np.hstack([n.point[0:2] for n in self.nodes])
+        return nodes
+
+    def add_node_and_traj(self, point : np.ndarray, traj : np.ndarray, parent_id : int):
+        '''
+        Add a new node and its associated trajectory to self.nodes and self.trajectories
+        this insures that the index of the node and the index of the trajectories carrespond to each other
+        Automatically computes cost
+
+        point: (2,)
+        traj: (3, n)
+        '''
+
+        assert point.shape == (2,), point.shape
+        assert traj.shape[0] == 3, traj.shape
+        assert type(parent_id) in (int, np.int64), type(parent_id)
+
+        new_node = Node(np.vstack((point.reshape(2, 1), 0)), parent_id, self.nodes[parent_id].cost + self.cost_to_come(traj))  # constant cost for now
+        self.nodes.append(new_node)
+        self.trajectories.append(self.point_to_cell(traj[:2]))
+        return new_node
 
     #Functions required for RRT
     def sample_map_space(self, use_heuristic=True):
@@ -131,7 +158,7 @@ class PathPlanner:
         assert point.shape == (2,), point.shape
         point = point.reshape(2, 1)
 
-        nodes = np.hstack([n.point[0:2] for n in self.nodes])
+        nodes = self.get_points_array()
         diff = nodes - point
         dist = np.sum(np.square(diff), axis=0)
         return np.argmin(dist)
@@ -145,11 +172,13 @@ class PathPlanner:
         '''
         assert node_i.shape == (3,), node_i.shape
         assert point_s.shape == (2,), point_s.shape
-        
-        # calculate vel and rot_vel to get from node_i to point_s
-        vel, rot_vel = self.robot_controller(node_i, point_s)
-        robot_traj = self.trajectory_rollout(vel, rot_vel, node_i, point_s)
-        return robot_traj, vel, rot_vel
+        if np.linalg.norm(node_i[:2] - point_s) > self.min_radius*2:
+            traj = self.connect_node_to_point(node_i, point_s)
+        else:
+            # calculate vel and rot_vel to get from node_i to point_s
+            vel, rot_vel = self.robot_controller(node_i, point_s)
+            traj = self.trajectory_rollout(vel, rot_vel, node_i, point_s)
+        return traj
     
     def robot_controller(self, node_i : np.ndarray, point_s : np.ndarray) -> tuple:
         '''
@@ -257,8 +286,10 @@ class PathPlanner:
         return traj
 
     def point_to_cell(self, point):
-        #Convert a series of [x,y] indicies to metric points in the map
-        #point is a 2 by N matrix of points of interest
+        '''
+        Convert a series of [x,y] indicies to metric points in the map
+        point is a 2 by N matrix of points of interest
+        '''
         # print("TO DO: Implement a method to get the map cell the robot is currently occupying")
         # map origin = [-21.0, -49.25, 0.000000]
         # point = [[],[],[]]
@@ -302,11 +333,13 @@ class PathPlanner:
 
     #RRT* specific functions
     def ball_radius(self):
-        #Close neighbor distance
+        '''
+        Close neighbor distance
+        '''
         card_V = len(self.nodes)
         return min(self.gamma_RRT * (np.log(card_V) / card_V ) ** (1.0/2.0), self.epsilon)
     
-    def connect_node_to_point(self, node_i : Node, point_f : np.ndarray):
+    def connect_node_to_point(self, node_i : np.ndarray, point_f : np.ndarray):
         '''
         Given two nodes find the non-holonomic path that connects them
         Settings
@@ -316,11 +349,11 @@ class PathPlanner:
 
         # the following code assumes that point_f is outside of the robot's maximum turn circle
         # point_f.reshape(2)
-        assert node_i.point.shape == (3, 1), node_i.point.shape
+        assert node_i.shape == (3,), node_i.shape
         assert point_f.shape == (2,), point_f.shape
 
         # first check if the point is at the left or right side of the robot
-        robot_xy, theta = node_i.point[0:2, 0], node_i.point[2, 0]
+        robot_xy, theta = node_i[0:2], node_i[2]
         robot_direction = np.array([np.cos(theta), np.sin(theta)])  # vector representing forward direction of robot
         robot_right_direction = np.array([np.sin(theta), -np.cos(theta)])   # vector representing right direction of robot
 
@@ -335,13 +368,13 @@ class PathPlanner:
         
         # assert circle_centre_to_point_f_length > min_radius, (circle_centre_to_point_f, robot_xy, point_f)
         
-        print(f'circle_centre_to_point_f_length: {circle_centre_to_point_f_length}')
-        print(f'circle_centre: {circle_centre}')
+        # print(f'circle_centre_to_point_f_length: {circle_centre_to_point_f_length}')
+        # print(f'circle_centre: {circle_centre}')
         alpha = np.arccos(self.min_radius / circle_centre_to_point_f_length) * on_right
         beta = np.arctan2(circle_centre_to_point_f[1], circle_centre_to_point_f[0])
         turning_point = (circle_centre + self.min_radius * np.array([np.cos(alpha + beta), np.sin(alpha + beta)]))
         theta_at_turning_point = np.arctan2(point_f[1] - turning_point[1], point_f[0] - turning_point[0])
-        print(alpha, beta)
+        # print(alpha, beta)
         # # filling in the start, finish, and turning point
         # path[:, -1] = np.concatenate([point_f, [theta_at_turning_point]], axis=0)
         # path[:, -2] = np.concatenate([turning_point, [theta_at_turning_point]], axis=0)
@@ -351,7 +384,7 @@ class PathPlanner:
         circle_centre_to_turning_point = turning_point - circle_centre
         turning_point_angle = np.arctan2(circle_centre_to_turning_point[1], circle_centre_to_turning_point[0])
         
-        print(turning_point_angle, on_right, circle_centre_to_turning_point, turning_point, robot_right_direction, circle_centre)
+        # print(turning_point_angle, on_right, circle_centre_to_turning_point, turning_point, robot_right_direction, circle_centre)
         arc = np.zeros((3, max(int(np.abs(turning_point_angle - start_angle)) * 100, 30)))
         line = np.zeros((3, max(int(np.linalg.norm(turning_point - point_f)) * 100, 30)))
         delta_angle = (turning_point_angle - start_angle) / (arc.shape[1] - 1)
@@ -372,7 +405,7 @@ class PathPlanner:
         path = np.concatenate((arc, line), axis=1)
         return path
     
-    def cost_to_come(self, trajectory_o, rot_cost_coefficient=0):
+    def cost_to_come(self, trajectory_o : np.ndarray, rot_cost_coefficient=0):
         '''
         The cost to get to a node from lavalle 
         
@@ -381,6 +414,7 @@ class PathPlanner:
         From now, the cost is calculated the Euclidean distance between points, ignoring rotation(i.e rot_cost_coefficient=0). 
         Potentially we can tune the cost function for better performance
         '''
+        assert trajectory_o.shape[0] == 3
         points = np.transpose(trajectory_o)  # changing 3xn to nx3
         total_cost = 0
         for i in range(len(points) - 1):
@@ -390,19 +424,19 @@ class PathPlanner:
             total_cost += np.linalg.norm(point1 - point2) + rot_cost_coefficient * angle_difference
         return total_cost
     
-    def update_children(self, node_id):
-        #Given a node_id with a changed cost, update all connected nodes with the new cost
-        # print("TO DO: Update the costs of connected nodes after rewiring.")
+    def update_children(self, node_id : int):
+        '''
+        Given a node_id with a changed cost, update all connected nodes with the new cost
 
-        # based on the obeservation to the codebase: I assume self.nodes[node_id] refers to a specific node
-        # which means, their node_id is just the index (order added to the self.nodes)
-
+        based on the obeservation to the codebase: I assume self.nodes[node_id] refers to a specific node
+        which means, their node_id is just the index (order added to the self.nodes)
+        '''
         if len(self.nodes[node_id].children_ids) == 0:  # reached to a leaf of a tree 
             return
         
         for children_id in self.nodes[node_id].children_ids:
             trajectory_from_cur_to_child = np.hstack([self.nodes[node_id].point, self.nodes[children_id].point])
-            assert trajectory_from_cur_to_child.shape == (3,2)
+            assert trajectory_from_cur_to_child.shape == (3, 2)
             cost_between_cur_to_child = self.cost_to_come(trajectory_from_cur_to_child)
             self.nodes[children_id].cost = self.nodes[node_id].cost + cost_between_cur_to_child
             self.update_children(children_id)
@@ -431,17 +465,11 @@ class PathPlanner:
 
             #Simulate driving the robot towards the closest point
             curr_node = self.nodes[closest_node_id].point
-            if np.linalg.norm(curr_node.reshape(3)[:2] - point[0:2]) > self.min_radius*2:
-                traj = self.connect_node_to_point(self.nodes[closest_node_id], point[0:2])
-            else:
-                traj, vel, rot_vel = self.simulate_trajectory(curr_node.reshape(3), point[0:2])
+            traj = self.simulate_trajectory(curr_node.reshape(3), point[:2])
 
             # 4. check if traj collides with map or obstacle
-            traj = self.point_to_cell(traj[:2])
-            if not self.is_collide(traj):
-                new_node = Node(np.vstack((point[:2].reshape(2, 1), 0)), closest_node_id, 1)  # constant cost for now
-                self.nodes.append(new_node)
-                self.trajectories.append(traj)
+            if not self.is_collide(self.point_to_cell(traj[:2])):
+                new_node = self.add_node_and_traj(point[:2], traj, closest_node_id)
                 plot += 1
                 if plot % 100 == 0:
                     self.plot_nodes()
@@ -451,13 +479,9 @@ class PathPlanner:
 
             # 6. check if close enough to goal
             if np.linalg.norm(new_node.point[:2] - self.goal_point) < self.stopping_dist:
-                traj, vel, rot_vel = self.simulate_trajectory(point, self.goal_point[0:2].squeeze())
-                # traj = self.connect_node_to_point(new_node, self.goal_point[0:2].squeeze())
-                traj = self.point_to_cell(traj[:2])
-                if not self.is_collide(traj):   # TODO: remove 'True or' once collision detection done 
-                    new_node = Node(np.vstack((self.goal_point[:2].reshape(2, 1), 0)), len(self.nodes) - 1, 1)
-                    self.nodes.append(new_node)
-                    self.trajectories.append(traj)
+                traj = self.simulate_trajectory(point, self.goal_point[0:2].squeeze())
+                if not self.is_collide(self.point_to_cell(traj[:2])):
+                    self.add_node_and_traj(self.goal_point[:2].reshape(2), traj, len(self.nodes) - 1)
                     print('goal point found in rrt')
                     self.plot_nodes()
                     break
@@ -480,40 +504,33 @@ class PathPlanner:
 
             #Simulate trajectory
             curr_node = self.nodes[closest_node_id].point
-            traj, vel, rot_vel = self.simulate_trajectory(curr_node.reshape(3), point[0:2])
-            # traj = self.connect_node_to_point(self.nodes[closest_node_id], point[0:2])
-            traj = self.point_to_cell(traj[:2])
+            traj = self.simulate_trajectory(curr_node.reshape(3), point[:2])
 
             #Check for Collision
-            if not self.is_collide(traj):
-                new_node = Node(np.vstack((point[:2].reshape(2, 1), 0)), closest_node_id, 1)  # constant cost for now
-                self.nodes.append(new_node)
-                self.trajectories.append(traj)
+            traj_cell = self.point_to_cell(traj[:2])
+            if not self.is_collide(traj_cell):
+                new_node = self.add_node_and_traj(point[:2], traj, closest_node_id)
                 plot += 1
-                if plot % 100 == 0:
+                if plot % 1 == 0:
                     self.plot_nodes()
             else:
                 print(f'new point trajectory has collision')
                 continue
             
             #Last node rewire
-            print("TO DO: Last node rewiring")
+            
+
 
             # check if close enough to goal
             if np.linalg.norm(new_node.point[:2] - self.goal_point) < self.stopping_dist:
-                traj, vel, rot_vel = self.simulate_trajectory(point, self.goal_point[0:2].squeeze())
-                # traj = self.connect_node_to_point(new_node, self.goal_point[0:2].squeeze())
-                traj = self.point_to_cell(traj[:2])
-                if not self.is_collide(traj):
-                    new_node = Node(np.vstack((self.goal_point[:2].reshape(2, 1), 0)), len(self.nodes) - 1, 1)
-                    self.nodes.append(new_node)
-                    self.trajectories.append(traj)
+                traj = self.simulate_trajectory(point, self.goal_point[0:2].squeeze())
+                traj_cell = self.point_to_cell(traj[:2])
+                if not self.is_collide(traj_cell):
+                    self.add_node_and_traj(self.goal_point[:2], traj, len(self.nodes) - 1)
                     print('goal point found in rrt')
                     self.plot_nodes()
                     break
 
-            #Last node rewire
-            print("TO DO: Last node rewiring")
 
             #Close node rewire
             print("TO DO: Near point rewiring")
@@ -574,12 +591,12 @@ def main():
 
     #RRT precursor
     path_planner = PathPlanner(map_filename, map_setings_filename, goal_point, stopping_dist)
+    
     nodes = path_planner.rrt_planning()
-    #print(nodes)
-    #exit()
+    # nodes = path_planner.rrt_star_planning()
+
     node_path_metric = np.hstack(path_planner.recover_path())
-    #print(nodes)
-    #print(node_path_metric)
+
     #Leftover test functions
     np.save("shortest_path.npy", node_path_metric)
 
