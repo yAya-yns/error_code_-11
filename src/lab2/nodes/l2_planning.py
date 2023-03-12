@@ -194,7 +194,7 @@ class PathPlanner:
 
         # determine if point_s is on the right side of the robot
         robot_xy, theta = node_i[0:2], node_i[2]
-        robot_right_direction = np.array([np.sin(theta), -np.cos(theta)])   # vector representing right direction of robot
+        robot_right_direction = np.array([np.sin(theta), -np.cos(theta)])# vector representing right direction of robot
         on_right = np.sign(np.dot(robot_right_direction, point_s - robot_xy))
 
         if on_right == 0:   # edge case where a straight line connects the two points instead of an arc
@@ -202,7 +202,8 @@ class PathPlanner:
 
         # compute the radius of the circle
         start_to_end_vec = point_s - robot_xy
-        radius = 0.5 * np.linalg.norm(robot_xy - point_s) / np.dot(start_to_end_vec / np.linalg.norm(start_to_end_vec), robot_right_direction * on_right)
+        radius = 0.5 * np.linalg.norm(robot_xy - point_s) / np.dot(start_to_end_vec / np.linalg.norm(start_to_end_vec), 
+                                        robot_right_direction * on_right)
 
         # calculate v and w based on circle radius
         ret_v = radius * self.rot_vel_max
@@ -264,7 +265,7 @@ class PathPlanner:
         # extract sign from w
         on_right = np.sign(rot_vel) * -1
         rot_vel = np.abs(rot_vel)
-        robot_right_direction = np.array([np.sin(theta), -np.cos(theta)])   # vector representing right direction of robot
+        robot_right_direction = np.array([np.sin(theta), -np.cos(theta)])# vector representing right direction of robot
 
         # get radius and circle centre
         radius = vel / rot_vel
@@ -352,50 +353,35 @@ class PathPlanner:
         '''
 
         # the following code assumes that point_f is outside of the robot's maximum turn circle
-        # point_f.reshape(2)
         assert node_i.shape == (3,), node_i.shape
         assert point_f.shape == (2,), point_f.shape
 
         # first check if the point is at the left or right side of the robot
         robot_xy, theta = node_i[0:2], node_i[2]
-        robot_direction = np.array([np.cos(theta), np.sin(theta)])  # vector representing forward direction of robot
-        robot_right_direction = np.array([np.sin(theta), -np.cos(theta)])   # vector representing right direction of robot
+        robot_right_direction = np.array([np.sin(theta), -np.cos(theta)])# vector representing right direction of robot
 
         # use dot product to find whether point_f is on the right side of robot, and whether it is in front of the robot
         on_right = np.sign(np.dot(robot_right_direction, point_f - robot_xy))
-        # in_front = np.sign(np.dot(robot_direction, point_f - robot_xy))
 
         # shit tone of math based on geometry
         circle_centre = on_right * self.min_radius * robot_right_direction + robot_xy
         circle_centre_to_point_f = point_f - circle_centre
         circle_centre_to_point_f_length = np.linalg.norm(circle_centre - point_f)
         
-        # assert circle_centre_to_point_f_length > min_radius, (circle_centre_to_point_f, robot_xy, point_f)
-        
-        # print(f'circle_centre_to_point_f_length: {circle_centre_to_point_f_length}')
-        # print(f'circle_centre: {circle_centre}')
         alpha = np.arccos(self.min_radius / circle_centre_to_point_f_length) * on_right
         beta = np.arctan2(circle_centre_to_point_f[1], circle_centre_to_point_f[0])
         turning_point = (circle_centre + self.min_radius * np.array([np.cos(alpha + beta), np.sin(alpha + beta)]))
         theta_at_turning_point = np.arctan2(point_f[1] - turning_point[1], point_f[0] - turning_point[0])
-        # print(alpha, beta)
-        # # filling in the start, finish, and turning point
-        # path[:, -1] = np.concatenate([point_f, [theta_at_turning_point]], axis=0)
-        # path[:, -2] = np.concatenate([turning_point, [theta_at_turning_point]], axis=0)
 
         # filling in the remaining points in the arc
         start_angle = theta + on_right * np.pi/2
         circle_centre_to_turning_point = turning_point - circle_centre
         turning_point_angle = np.arctan2(circle_centre_to_turning_point[1], circle_centre_to_turning_point[0])
         
-        # print(turning_point_angle, on_right, circle_centre_to_turning_point, turning_point, robot_right_direction, circle_centre)
         arc = np.zeros((3, max(int(np.abs(turning_point_angle - start_angle)) * 100, 30)))
         line = np.zeros((3, max(int(np.linalg.norm(turning_point - point_f)) * 100, 30)))
         delta_angle = (turning_point_angle - start_angle) / (arc.shape[1] - 1)
         delta = (point_f - turning_point) / (line.shape[1] - 1)
-
-        # print(f'turning_point: {turning_point.shape}')
-        # print(f'point_f: {point_f.shape}')
         
         for i in range(arc.shape[1]):
             ang = start_angle + i * delta_angle
@@ -452,20 +438,13 @@ class PathPlanner:
         #You do not need to demonstrate this function to the TAs, but it is left in for you to check your work
         path_finding = True
         plot = 0
-        # self.window.add_point(np.array([-10, -10]))
-        # input()
         while path_finding: #Most likely need more iterations than this to complete the map!
-            print(plot)
             
             #Sample map space
             point = self.sample_map_space(use_heuristic=False) #world
-            # while self.check_if_duplicate(point):
-            #     point = self.sample_map_space()
 
             #Get the closest point
             closest_node_id = self.closest_node(point[:2])
-            # print("point: ", point)
-            # print("closest node: ", self.nodes[closest_node_id].point)
 
             #Simulate driving the robot towards the closest point
             curr_node = self.nodes[closest_node_id].point
@@ -568,7 +547,8 @@ class PathPlanner:
                     for start_node_id in nodes_in_ball:
                         if start_node_id == end_node_id:
                             continue
-                        rewire_traj = self.simulate_trajectory(self.nodes[start_node_id].point.reshape(3), self.nodes[end_node_id].point[:2].reshape(2))
+                        rewire_traj = self.simulate_trajectory(self.nodes[start_node_id].point.reshape(3), 
+                                                              self.nodes[end_node_id].point[:2].reshape(2))
                         new_cost = self.cost_to_come(rewire_traj) + self.nodes[start_node_id].cost
                         if new_cost < cur_cost:
                             cur_cost = new_cost
