@@ -100,9 +100,10 @@ class OccupancyGripMap:
 
         # YOUR CODE HERE!!! Loop through each measurement in scan_msg to get the correct angle and
         # x_start and y_start to send to your ray_trace_update function.
-        for i in range(len(scan_msg.ranges)//4):
+        self.np_map[:, :] = -1
+        for i in range(len(scan_msg.ranges)):
         # for i in range(1):
-            self.np_map, self.log_odds = self.ray_trace_update(self.np_map, self.log_odds, int(odom_map[1] * 100), int(odom_map[0] * 100), -odom_map[2] + i * scan_msg.angle_increment + np.pi/2, scan_msg.ranges[i])
+            self.np_map, self.log_odds = self.ray_trace_update(self.np_map, self.log_odds, int(odom_map[1] * 100), int(odom_map[0] * 100), -odom_map[2] - i * scan_msg.angle_increment + np.pi/2, scan_msg.ranges[i])
 
         # self.np_map[:, self.np_map.shape[1] // 4] = 1
 
@@ -134,26 +135,32 @@ class OccupancyGripMap:
         start_pos = np.array([x_start, y_start])
         y_dist = n_row - y_start - 1
         x_dist = n_col - x_start - 1
-        dist = min(range_mes * 100, np.abs(x_dist / np.cos(angle)), np.abs(y_dist / np.sin(angle)))
-        dest = dist * dir_vec + start_pos
+        dist_to_boundary = min(np.abs(x_dist / (np.abs(np.cos(angle))+0.1)), np.abs(y_dist / (np.abs(np.sin(angle))+0.1)))
+        if range_mes * 100 > dist_to_boundary:
+            dist = dist_to_boundary
+            dest = dist * dir_vec + start_pos
+            dest = np.round(dest).astype(int)
+            assert np.all(np.logical_and(map.shape - dest >= 0, dest >= 0)), dest
+            rr, cc = ray_trace(x_start, y_start, dest[0], dest[1])
+            map[rr, cc] = 1
+        else: # TODO: duplicate code fragment
+            dist = range_mes * 100
+            dest = dist * dir_vec + start_pos
+            dest = np.round(dest).astype(int)
+            rr, cc = ray_trace(x_start, y_start, dest[0], dest[1])
+            map[rr, cc] = 1
 
-        # if np.all(np.logical_and(map.shape - temp_dest1 >= 0, temp_dest1 >= 0)):
-        #     dest = temp_dest1
-        # else:
-        #     dest = temp_dest2
-        print(range_mes)
-        print(y_dist)
-        print(x_dist)
+            unknown = dist_to_boundary * dir_vec + start_pos
+            unknown = np.round(unknown).astype(int)
+            rr, cc = ray_trace(dest[0], dest[1], unknown[0], unknown[1])
+            map[rr, cc] = -1
 
-        dest = np.round(dest).astype(int)
         
         print(x_start, y_start, dest[0], dest[1])
-        assert np.all(np.logical_and(map.shape - dest >= 0, dest >= 0)), dest
 
         # print(dest.dtype, y_start, x_start)
-        rr, cc = ray_trace(x_start, y_start, dest[0], dest[1])
 
-        map[rr, cc] = 1
+        
 
         # print(map)
 
