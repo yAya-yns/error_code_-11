@@ -21,7 +21,7 @@ ALPHA = 1
 BETA = 1
 MAP_DIM = (4, 4)
 CELL_SIZE = .01
-NUM_PTS_OBSTACLE = 3
+NUM_PTS_OBSTACLE = 1
 SCAN_DOWNSAMPLE = 1
 
 class OccupancyGripMap:
@@ -65,7 +65,7 @@ class OccupancyGripMap:
         self.map_odom_tf.transform.rotation.w = 1.0
 
         rospy.spin()
-        plt.imshow(100-self.np_map, cmap='gray', vmin=0, vmax=100)
+        plt.imshow(1-self.np_map, cmap='gray', vmin=0, vmax=100)
         rospack = rospkg.RosPack()
         path = rospack.get_path("rob521_lab3")
         plt.savefig(path+"/map.png")
@@ -101,10 +101,12 @@ class OccupancyGripMap:
         # YOUR CODE HERE!!! Loop through each measurement in scan_msg to get the correct angle and
         # x_start and y_start to send to your ray_trace_update function.
         self.np_map[:, :] = -1
-        for i in range(len(scan_msg.ranges)):
+        # self.log_odds[:, :] = 0
+        for i in range(0, len(scan_msg.ranges), 5):
         # for i in range(1):
+            # rospy.loginfo(i)
             self.np_map, self.log_odds = self.ray_trace_update(self.np_map, self.log_odds, int(odom_map[1] * 100), int(odom_map[0] * 100), -odom_map[2] - i * scan_msg.angle_increment + np.pi/2, scan_msg.ranges[i])
-
+        print(np.max(self.np_map), np.min(self.np_map))
         # self.np_map[:, self.np_map.shape[1] // 4] = 1
 
         # publish the message
@@ -140,30 +142,38 @@ class OccupancyGripMap:
             dist = dist_to_boundary
             dest = dist * dir_vec + start_pos
             dest = np.round(dest).astype(int)
-            assert np.all(np.logical_and(map.shape - dest >= 0, dest >= 0)), dest
-            rr, cc = ray_trace(x_start, y_start, dest[0], dest[1])
-            map[rr, cc] = 1
+            assert np.all(np.logical_and(map.shape - dest >= 0, dest >= 0)), (dest, start_pos, dir_vec, dist_to_boundary)
+            coord = np.array(ray_trace(x_start, y_start, dest[0], dest[1])) # (2, N)
+            
+            # print(coord)
+            
+            log_odds[coord[0, :], coord[1, :]] -= 2
+            # map[coord[0, :], coord[1, :]] = 1
         else: # TODO: duplicate code fragment
             dist = range_mes * 100
             dest = dist * dir_vec + start_pos
             dest = np.round(dest).astype(int)
-            rr, cc = ray_trace(x_start, y_start, dest[0], dest[1])
-            map[rr, cc] = 1
+            coord = np.array(ray_trace(x_start, y_start, dest[0], dest[1])) # (2, N)
+            near_obs_coord = coord[:, np.where(np.linalg.norm(coord - dest.reshape(2, 1), axis=0) < NUM_PTS_OBSTACLE)[0]]
+            
+            # print(near_obs_coord)
+            # print(coord)
 
-            unknown = dist_to_boundary * dir_vec + start_pos
-            unknown = np.round(unknown).astype(int)
-            rr, cc = ray_trace(dest[0], dest[1], unknown[0], unknown[1])
-            map[rr, cc] = -1
+            log_odds[near_obs_coord[0, :], near_obs_coord[1, :]] += ALPHA + BETA
+            log_odds[coord[0, :], coord[1, :]] -= BETA
+            # map[rr, cc] = 1
 
-        
-        print(x_start, y_start, dest[0], dest[1])
-
-        # print(dest.dtype, y_start, x_start)
-
-        
-
-        # print(map)
-
+            # unknown = dist_to_boundary * dir_vec + start_pos
+            # unknown = np.round(unknown).astype(int)
+            # assert np.all(np.logical_and(map.shape - unknown >= 0, unknown >= 0)), unknown
+            # rr, cc = ray_trace(dest[0], dest[1], unknown[0], unknown[1])
+            # map[rr, cc] = -1
+        # print(np.max(log_odds), np.min(log_odds))
+        a = np.round(self.log_odds_to_probability(log_odds) + 0.01)
+        # print(np.max(a), np.min(a))
+        map = np.round((np.round(self.log_odds_to_probability(log_odds) + 0.01) - 0.5)*2).astype(np.int16)
+        # plt.matshow(log_odds)
+        # plt.show()
         return map, log_odds
 
     def log_odds_to_probability(self, values):
