@@ -32,10 +32,11 @@ def plot(bag):
     axes[2].set_xlabel("time (s)")
     
     plt.show()
+    plt.save("part2.png")
 
 
 if __name__ == '__main__':
     rospack = rospkg.RosPack()
     path = rospack.get_path("rob521_lab3")
-    bag = rosbag.Bag(path+"/motion_estimate.bag")
+    bag = rosbag.Bag(path+"/motion_estimate_v2.bag")
     plot(bag)

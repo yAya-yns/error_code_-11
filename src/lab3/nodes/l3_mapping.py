@@ -21,7 +21,7 @@ ALPHA = 1
 BETA = 1
 MAP_DIM = (4, 4)
 CELL_SIZE = .01
-NUM_PTS_OBSTACLE = 1
+NUM_PTS_OBSTACLE = 3
 SCAN_DOWNSAMPLE = 1
 
 class OccupancyGripMap:
@@ -65,7 +65,7 @@ class OccupancyGripMap:
         self.map_odom_tf.transform.rotation.w = 1.0
 
         rospy.spin()
-        plt.imshow(1-self.np_map, cmap='gray', vmin=0, vmax=100)
+        plt.imshow(100-self.np_map, cmap='gray', vmin=0, vmax=100)
         rospack = rospkg.RosPack()
         path = rospack.get_path("rob521_lab3")
         plt.savefig(path+"/map.png")
@@ -142,12 +142,13 @@ class OccupancyGripMap:
             dist = dist_to_boundary
             dest = dist * dir_vec + start_pos
             dest = np.round(dest).astype(int)
-            assert np.all(np.logical_and(map.shape - dest >= 0, dest >= 0)), (dest, start_pos, dir_vec, dist_to_boundary)
+            if not np.all(np.logical_and(map.shape - dest >= 0, dest >= 0)):
+                return map, log_odds
             coord = np.array(ray_trace(x_start, y_start, dest[0], dest[1])) # (2, N)
             
             # print(coord)
             
-            log_odds[coord[0, :], coord[1, :]] -= 2
+            log_odds[coord[0, :], coord[1, :]] -= BETA
             # map[coord[0, :], coord[1, :]] = 1
         else: # TODO: duplicate code fragment
             dist = range_mes * 100
@@ -159,7 +160,7 @@ class OccupancyGripMap:
             # print(near_obs_coord)
             # print(coord)
 
-            log_odds[near_obs_coord[0, :], near_obs_coord[1, :]] += ALPHA + BETA
+            log_odds[near_obs_coord[0, :], near_obs_coord[1, :]] += (ALPHA + BETA)
             log_odds[coord[0, :], coord[1, :]] -= BETA
             # map[rr, cc] = 1
 
@@ -171,7 +172,8 @@ class OccupancyGripMap:
         # print(np.max(log_odds), np.min(log_odds))
         a = np.round(self.log_odds_to_probability(log_odds) + 0.01)
         # print(np.max(a), np.min(a))
-        map = np.round((np.round(self.log_odds_to_probability(log_odds) + 0.01) - 0.5)*2).astype(np.int16)
+        # map = np.round((np.round(self.log_odds_to_probability(log_odds) + 0.01) - 0.5)*2).astype(np.int16)
+        map = (self.log_odds_to_probability(log_odds) * 100).astype(np.int16)
         # plt.matshow(log_odds)
         # plt.show()
         return map, log_odds

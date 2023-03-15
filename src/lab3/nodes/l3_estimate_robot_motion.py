@@ -20,8 +20,8 @@ from utils import convert_pose_to_tf, euler_from_ros_quat, ros_quat_from_euler
 
 ENC_TICKS = 4096
 RAD_PER_TICK = 0.001533981
-WHEEL_RADIUS = .066 / 2
-BASELINE = .287 / 2
+WHEEL_RADIUS = 0.03658925988237998 # .066 / 2
+BASELINE = 0.279981689453125/2 #.287 / 2
 
 
 class WheelOdom:
@@ -122,6 +122,7 @@ class WheelOdom:
             self.wheel_odom_pub.publish(self.wheel_odom)
 
             self.bag.write('odom_est', self.wheel_odom)
+            self.bag.write('odom_onboard', self.odom)
 
             # for testing against actual odom
             print("Wheel Odom: x: %2.3f, y: %2.3f, t: %2.3f" % (
@@ -135,7 +136,7 @@ class WheelOdom:
     def odom_cb(self, odom_msg):
         # get odom from turtlebot3 packages
         self.odom = odom_msg
-        self.bag.write('odom_onboard', self.odom)
+        # self.bag.write('odom_onboard', self.odom)
 
     def plot(self, bag):
         data = {"odom_est":{"time":[], "data":[]}, 

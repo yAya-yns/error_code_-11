@@ -8,9 +8,10 @@ from std_msgs.msg import Empty
 from geometry_msgs.msg import Twist
 
 INT32_MAX = 2**31
-NUM_ROTATIONS = 3 
+NUM_ROTATIONS = 3
 TICKS_PER_ROTATION = 4096
 WHEEL_RADIUS = 0.066 / 2 #In meters
+# WHEEL_RADIUS = 0.03658925988237998
 
 
 class wheelBaselineEstimator():
@@ -38,16 +39,16 @@ class wheelBaselineEstimator():
         print('Ready to start wheel radius calibration!')
         return
 
-    def safeDelPhi(self, a, b):
-        #Need to check if the encoder storage variable has overflowed
-        diff = np.int64(b) - np.int64(a)
-        if diff < -np.int64(INT32_MAX): #Overflowed
-            delPhi = (INT32_MAX - 1 - a) + (INT32_MAX + b) + 1
-        elif diff > np.int64(INT32_MAX) - 1: #Underflowed
-            delPhi = (INT32_MAX + a) + (INT32_MAX - 1 - b) + 1
-        else:
-            delPhi = b - a  
-        return delPhi
+    # def safeDelPhi(self, a, b):
+    #     #Need to check if the encoder storage variable has overflowed
+    #     diff = np.int64(b) - np.int64(a)
+    #     if diff < -np.int64(INT32_MAX): #Overflowed
+    #         delPhi = (INT32_MAX - 1 - a) + (INT32_MAX + b) + 1
+    #     elif diff > np.int64(INT32_MAX) - 1: #Underflowed
+    #         delPhi = (INT32_MAX + a) + (INT32_MAX - 1 - b) + 1
+    #     else:
+    #         delPhi = b - a  
+    #     return delPhi
 
     def sensorCallback(self, msg):
         #Retrieve the encoder data form the sensor state msg
@@ -57,12 +58,11 @@ class wheelBaselineEstimator():
             self.right_encoder_prev = msg.right_encoder #int32
         else:
             #Calculate and integrate the change in encoder value
-            self.del_left_encoder += self.safeDelPhi(self.left_encoder_prev, msg.left_encoder)
-            self.del_right_encoder += self.safeDelPhi(self.right_encoder_prev, msg.right_encoder)
-
+            self.del_left_encoder += msg.left_encoder  - self.left_encoder_prev
+            self.del_right_encoder += msg.right_encoder - self.right_encoder_prev
             #Store the new encoder values
-            self.left_encoder_prev = msg.left_encoder #int32
-            self.right_encoder_prev = msg.right_encoder #int32
+            self.left_encoder_prev = msg.left_encoder 
+            self.right_encoder_prev = msg.right_encoder 
         self.lock.release()
         return
 
@@ -76,8 +76,8 @@ class wheelBaselineEstimator():
 
             # # YOUR CODE HERE!!!
             # Calculate the radius of the wheel based on encoder measurements
-            num = 2 * np.pi * ((self.del_right_encoder - self.del_left_encoder)/TICKS_PER_ROTATION)
-            separation = (WHEEL_RADIUS/2) * (num/(NUM_ROTATIONS * 2 * np.pi))
+            rot_ang = 2 * np.pi * ((self.del_left_encoder - self.del_right_encoder)/TICKS_PER_ROTATION)
+            separation = (WHEEL_RADIUS) * (rot_ang/(NUM_ROTATIONS * 2 * np.pi))
             print('Calibrated Separation: {} m'.format(separation))
 
             #Reset the robot and calibration routine
