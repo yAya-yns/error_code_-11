@@ -101,13 +101,15 @@ class OccupancyGripMap:
         # YOUR CODE HERE!!! Loop through each measurement in scan_msg to get the correct angle and
         # x_start and y_start to send to your ray_trace_update function.
         self.np_map[:, :] = -1
-        # self.log_odds[:, :] = 0
         for i in range(0, len(scan_msg.ranges), 5):
-        # for i in range(1):
-            # rospy.loginfo(i)
-            self.np_map, self.log_odds = self.ray_trace_update(self.np_map, self.log_odds, int(odom_map[1] * 100), int(odom_map[0] * 100), -odom_map[2] - i * scan_msg.angle_increment + np.pi/2, scan_msg.ranges[i])
-        print(np.max(self.np_map), np.min(self.np_map))
-        # self.np_map[:, self.np_map.shape[1] // 4] = 1
+            self.np_map, self.log_odds = self.ray_trace_update(
+                self.np_map, 
+                self.log_odds, 
+                int(odom_map[1] * 100), 
+                int(odom_map[0] * 100), 
+                -odom_map[2] - i * scan_msg.angle_increment + np.pi/2, 
+                scan_msg.ranges[i]
+            )
 
         # publish the message
         self.map_msg.info.map_load_time = rospy.Time.now()
@@ -130,56 +132,51 @@ class OccupancyGripMap:
         # ray_trace and the equations from class. Your numpy map must be an array of int8s with 0 to 100 representing
         # probability of occupancy, and -1 representing unknown.
         assert map.dtype == np.int16, map.dtype
-        # print(map.shape)
 
         n_row, n_col = map.shape
         dir_vec = np.array([np.cos(angle), np.sin(angle)])
         start_pos = np.array([x_start, y_start])
+
+        # calculate the end destination of the ray, ensure doesn't exceed map boundary
         y_dist = n_row - y_start - 1
         x_dist = n_col - x_start - 1
         dist_to_boundary = min(np.abs(x_dist / (np.abs(np.cos(angle))+0.1)), np.abs(y_dist / (np.abs(np.sin(angle))+0.1)))
-        if range_mes * 100 > dist_to_boundary:
+        
+        
+        if range_mes * 100 > dist_to_boundary:  # case where no obstacle is hit
+            # get ray destination
             dist = dist_to_boundary
             dest = dist * dir_vec + start_pos
             dest = np.round(dest).astype(int)
+
+            # for error checking
             if not np.all(np.logical_and(map.shape - dest >= 0, dest >= 0)):
                 return map, log_odds
+            
+            # get pixels to update and update probability
             coord = np.array(ray_trace(x_start, y_start, dest[0], dest[1])) # (2, N)
-            
-            # print(coord)
-            
             log_odds[coord[0, :], coord[1, :]] -= BETA
-            # map[coord[0, :], coord[1, :]] = 1
-        else: # TODO: duplicate code fragment
+        else: # case where an obstacle is hit
+            # get ray destination
             dist = range_mes * 100
             dest = dist * dir_vec + start_pos
             dest = np.round(dest).astype(int)
-            coord = np.array(ray_trace(x_start, y_start, dest[0], dest[1])) # (2, N)
-            near_obs_coord = coord[:, np.where(np.linalg.norm(coord - dest.reshape(2, 1), axis=0) < NUM_PTS_OBSTACLE)[0]]
-            
-            # print(near_obs_coord)
-            # print(coord)
 
+            # get pixels to update
+            coord = np.array(ray_trace(x_start, y_start, dest[0], dest[1])) # (2, N)
+
+            # find pixels near obstacle
+            near_obs_coord = coord[:, np.where(np.linalg.norm(coord - dest.reshape(2, 1), axis=0) < NUM_PTS_OBSTACLE)[0]]
+
+            # update probability
             log_odds[near_obs_coord[0, :], near_obs_coord[1, :]] += (ALPHA + BETA)
             log_odds[coord[0, :], coord[1, :]] -= BETA
-            # map[rr, cc] = 1
-
-            # unknown = dist_to_boundary * dir_vec + start_pos
-            # unknown = np.round(unknown).astype(int)
-            # assert np.all(np.logical_and(map.shape - unknown >= 0, unknown >= 0)), unknown
-            # rr, cc = ray_trace(dest[0], dest[1], unknown[0], unknown[1])
-            # map[rr, cc] = -1
-        # print(np.max(log_odds), np.min(log_odds))
-        a = np.round(self.log_odds_to_probability(log_odds) + 0.01)
-        # print(np.max(a), np.min(a))
-        # map = np.round((np.round(self.log_odds_to_probability(log_odds) + 0.01) - 0.5)*2).astype(np.int16)
+        
+        # update occupancy map from probability
         map = (self.log_odds_to_probability(log_odds) * 100).astype(np.int16)
-        # plt.matshow(log_odds)
-        # plt.show()
         return map, log_odds
 
     def log_odds_to_probability(self, values):
-        # print(values)
         return np.exp(values) / (1 + np.exp(values))
 
 
